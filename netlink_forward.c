@@ -18,6 +18,8 @@
 #include <unistd.h>
 #include <assert.h>
 
+#include "forward.h"
+
 #define MAX_MSG 16384
 #define MAX_OFFS 128
 
@@ -287,10 +289,10 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 	struct tcmsg *t = NLMSG_DATA(n);
 	__be16 tc_proto = TC_H_MIN(t->tcm_info);
 	fprintf(stderr, "TC_H_MIN(t->tcm_info): %u\n", TC_H_MIN(t->tcm_info));
-
 	addattr_l(n, MAX_MSG, TCA_OPTIONS, NULL, 0);
+
         __u32 flags = 0;
-	/* if traffic is outbound */
+	/* check if traffic is outbound, no offload for egress */
 	if (src_ip == my_ip.sin_addr.s_addr) {
                 flags |= TCA_CLS_FLAGS_SKIP_HW;
 	}
@@ -298,6 +300,7 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
                 flags |= TCA_CLS_FLAGS_SKIP_SW;
         }
 
+	/* setup flags and proto of flow */
 	ret = addattr32(n, MAX_MSG, TCA_FLOWER_FLAGS, flags);
 	ret = addattr16(n, MAX_MSG, TCA_FLOWER_KEY_ETH_TYPE, tc_proto);
 	ret = addattr8(n, MAX_MSG, TCA_FLOWER_KEY_IP_PROTO, ip_proto);
@@ -323,13 +326,16 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
 {
-	/* add action */
 	struct rtattr *tail4;
 	struct rtattr *tail3;
-	struct rtattr *tail2 = addattr_nest(n, MAX_MSG, TCA_FLOWER_ACT);
-	int prio = 0;
 
+	/* add action */
+	struct rtattr *tail2 = addattr_nest(n, MAX_MSG, TCA_FLOWER_ACT);
+	int prio = 0; // idx or actions, critical
+
+	/* skip all pedit if flow is to be blocked */
 	if (!block) {
+		/* nest for pedit */
 		tail3 = addattr_nest(n, MAX_MSG, ++prio);
 		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "pedit", strlen("pedit") + 1);
 	
@@ -341,16 +347,19 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		__u32 *v = &val[0];
 		__u32 retain;
 	
+		/* new src MAC address */
 		sel.extended = true;
 		tkey.htype = TCA_PEDIT_KEY_EX_HDR_TYPE_ETH;
 		tkey.off = 6;
 		tkey.cmd = TCA_PEDIT_KEY_EX_CMD_SET;
 		int res = pack_mac(&sel, &tkey, new_src_mac);
 	
+		/* new dst MAC address */
 		tkey.off = 0;
 		tkey.cmd = TCA_PEDIT_KEY_EX_CMD_SET;
 		res = pack_mac(&sel, &tkey, new_dst_mac);
 	
+		/* new src IP address */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
 		retain = RU32;
@@ -362,6 +371,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.val = ntohl(tkey.val);
 		res = pack_key32(retain, &sel, &tkey);
 	
+		/* new dst IP address */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
 		retain = RU32;
@@ -373,6 +383,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.val = ntohl(tkey.val);
 		res = pack_key32(retain, &sel, &tkey);
 	
+		/* new sport */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
 		tkey.off = 0;
@@ -383,6 +394,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.mask = *m;
 		res = pack_key16(retain, &sel, &tkey);
 	
+		/* new dport */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
 		tkey.off = 2;
@@ -393,12 +405,14 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.mask = *m;
 		res = pack_key16(retain, &sel, &tkey);
 	
+		/* pack pedit actions */
 		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
 		addattr_l(n, MAX_MSG, TCA_PEDIT_PARMS_EX, &sel, sizeof(sel.sel) + sel.sel.nkeys * sizeof(struct tc_pedit_key));
 		pedit_keys_ex_addattr(&sel, n);
 		addattr_nest_end(n, tail4);
 	
 		addattr_nest_end(n, tail3);
+		/* end of pedit */
 	
 		/* add csum edit */
 		tail3 = addattr_nest(n, MAX_MSG, ++prio);
@@ -448,7 +462,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 	}
 
 	addattr_nest_end(n, tail2);
-	/* end action */
+	/* end of actions */
 
 	return 0;
 }
@@ -536,7 +550,6 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint3
 {
 	struct rtnl_handle rth;
 
-	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
 	struct {
                 struct nlmsghdr n;
                 struct tcmsg            t;
@@ -563,31 +576,37 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint3
 	else {
 		get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
-	fprintf(stderr, "req.t.tcm_parent: %lu\n", (unsigned long)req.t.tcm_parent);
+	//fprintf(stderr, "req.t.tcm_parent: %lu\n", (unsigned long)req.t.tcm_parent);
 
 	// prior
 	prio = 1;
-	fprintf(stderr, "prio: %lu\n", (unsigned long)prio);
+	//fprintf(stderr, "prio: %lu\n", (unsigned long)prio);
 
-	// flower
-	sprintf(addr, "%s", "flower");
 
+	/* use flower classifier and get device index */
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
 	fprintf(stderr, "req.t.tcm_info: %lu\n", (unsigned long)req.t.tcm_info);
-	addattr_l(&req.n, sizeof(req), TCA_KIND, addr, strlen(addr)+1);
+	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
 	fprintf(stderr, "req.t.tcm_ifindex: %lu\n", (unsigned long)req.t.tcm_ifindex);
 
+	/* start nesting message */
 	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
 
+	/* add filter */
 	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
-	prio = 0;
+
+	/* add action */
 	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, &req.n);
 
+	/* stop nesting message */
 	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
+	/* remove filter if exist TODO */
 	req.n.nlmsg_type = RTM_DELTFILTER;
 	ret = rtnl_talk(&rth, &req.n, NULL);
+
+	/* add new rule */
 	req.n.nlmsg_type = RTM_NEWTFILTER;
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
@@ -634,6 +653,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 		return -1;
 	}
 
+	/* copy device name and qdisc */
 	strcpy(device_name, interface_name);
 	strcpy(ingress_qdisc_parent, ingress_qdisc);
 	strcpy(egress_qdisc_parent, egress_qdisc);
@@ -650,6 +670,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 		return -1;
 	}
 
+	/* resolve interface MAC address */
 	if (ioctl(fd, SIOCGIFHWADDR, &interface_request) == -1) {
 		fprintf(stderr, "Error: libforward fail to request interface: %s\n", strerror(errno));
 		initialized = -1;
@@ -658,6 +679,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 	}
 	memcpy(my_mac, interface_request.ifr_hwaddr.sa_data, IFHWADDRLEN);
 
+	/* resolve interface IP address */
 	if (ioctl(fd, SIOCGIFADDR, &interface_request) == -1) {
 		fprintf(stderr, "Error: libforward fail to request interface: %s\n", strerror(errno));
 		initialized = -1;
