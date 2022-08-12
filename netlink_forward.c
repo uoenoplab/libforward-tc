@@ -279,7 +279,7 @@ static int hwaddr_aton(const char *txt, __u8 *addr)
         return 0;
 }
 
-int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
+static int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
         __u32 prio = 0;
         int ret;
@@ -323,7 +323,7 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 	return 0;
 }
 
-int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
+static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
 {
 	struct rtattr *tail4;
@@ -370,19 +370,19 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.mask = *m;
 		tkey.val = ntohl(tkey.val);
 		res = pack_key32(retain, &sel, &tkey);
-	
+
 		/* new dst IP address */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
 		retain = RU32;
 		tkey.off = 16;
 		tkey.htype = TCA_PEDIT_KEY_EX_HDR_TYPE_IP4;
-	
+
 		tkey.val = new_dst_ip;
 		tkey.mask = *m;
 		tkey.val = ntohl(tkey.val);
 		res = pack_key32(retain, &sel, &tkey);
-	
+
 		/* new sport */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
@@ -393,7 +393,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.val = *v;
 		tkey.mask = *m;
 		res = pack_key16(retain, &sel, &tkey);
-	
+
 		/* new dport */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
@@ -404,44 +404,44 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		tkey.val = *v;
 		tkey.mask = *m;
 		res = pack_key16(retain, &sel, &tkey);
-	
+
 		/* pack pedit actions */
 		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
 		addattr_l(n, MAX_MSG, TCA_PEDIT_PARMS_EX, &sel, sizeof(sel.sel) + sel.sel.nkeys * sizeof(struct tc_pedit_key));
 		pedit_keys_ex_addattr(&sel, n);
 		addattr_nest_end(n, tail4);
-	
+
 		addattr_nest_end(n, tail3);
 		/* end of pedit */
-	
+
 		/* add csum edit */
 		tail3 = addattr_nest(n, MAX_MSG, ++prio);
 		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "csum", strlen("csum") + 1);
-	
+
 		struct tc_csum csum_sel = {};
 		csum_sel.update_flags |= TCA_CSUM_UPDATE_FLAG_IPV4HDR;
 		csum_sel.update_flags |= TCA_CSUM_UPDATE_FLAG_TCP;
-	
+
 		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
 		addattr_l(n, MAX_MSG, TCA_CSUM_PARMS, &csum_sel, sizeof(csum_sel));
 		addattr_nest_end(n, tail4);
-	
+
 		addattr_nest_end(n, tail3);
 		/* end csum edit */
-	
+
 		/* add mirred edit */
 		tail3 = addattr_nest(n, MAX_MSG, ++prio);
 		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "mirred", strlen("mirred") + 1);
-	
+
 		struct tc_mirred mirred_p = {};
 		mirred_p.eaction = TCA_EGRESS_REDIR;
 		mirred_p.action = TC_ACT_STOLEN;
 		mirred_p.ifindex = if_nametoindex(device_name);
-	
+
 		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
 		addattr_l(n, MAX_MSG, TCA_MIRRED_PARMS, &mirred_p, sizeof(mirred_p));
 		addattr_nest_end(n, tail4);
-	
+
 		addattr_nest_end(n, tail3);
 		/* end mirred edit */
 	}
@@ -469,6 +469,11 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 
 int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport)
 {
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -550,6 +555,11 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 			const uint16_t new_sport, const uint16_t new_dport, const bool block)
 {
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+
 	struct rtnl_handle rth;
 
 	struct {
