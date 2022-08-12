@@ -572,6 +572,7 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 		return 2;
 	}
 	rtnl_close(&rth);
+	free(this_flow);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
@@ -818,4 +819,23 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 #endif
 	initialized = 1;
 	return 1;
+}
+
+__attribute__((destructor))
+int fini_forward()
+{
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+
+	struct flow *current_flow, *tmp;
+	HASH_ITER(hh, my_flows, current_flow, tmp) {
+		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.src_mac, current_flow->flow_id.dst_ip,
+				current_flow->flow_id.dst_mac, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+		HASH_DEL(my_flows, current_flow);
+		free(current_flow);
+	}
+
+	return 0;
 }

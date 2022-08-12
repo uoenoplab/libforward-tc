@@ -32,10 +32,11 @@ int main(int argc, char **argv)
                               "192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
 			      (uint16_t)8889, (uint16_t)8888, false);
 
-	remove_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
-			      (uint16_t)8889, (uint16_t)8888);
-
-	remove_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
-			      (uint16_t)8880, (uint16_t)8881);
+//	assert(fini_forward() == 0);
+//	remove_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+//			      (uint16_t)8889, (uint16_t)8888);
+//
+//	remove_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+//			      (uint16_t)8880, (uint16_t)8881);
 	return 0;
 }
