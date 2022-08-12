@@ -1,3 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <errno.h>
+#include <strings.h>
+#include <unistd.h>
+#include <assert.h>
+
 #include <linux/if_ether.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -10,32 +18,11 @@
 #include <linux/tc_act/tc_pedit.h>
 #include <linux/tc_act/tc_gact.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <strings.h>
-#include <unistd.h>
-#include <assert.h>
-
 #include "forward.h"
-#include "uthash/include/uthash.h"
-
-#define MAX_MSG 16384
-#define MAX_OFFS 128
-
-#define TIPV4 1
-#define TIPV6 2
-#define TINT 3
-#define TU32 4
-#define TMAC 5
-
-#define RU32 0xFFFFFFFF
-#define RU16 0xFFFF
-#define RU8 0xFF
+#include "private/common.h"
+#include "uthash.h"
 
 #ifdef PROFILE
-//#define _POSIX_C_SOURCE=199309L
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
 double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
@@ -50,47 +37,10 @@ char egress_qdisc_parent[256];
 struct sockaddr_in my_ip;
 uint8_t my_mac[6];
 
-struct flow_key {
-	uint32_t src_ip;
-	uint32_t dst_ip;
-	uint8_t src_mac[6];
-	uint8_t dst_mac[6];
-	uint16_t src_port;
-	uint16_t dst_port;
-};
-
-struct flow {
-	struct flow_key flow_id;
-	uint32_t handle;
-	UT_hash_handle hh;         /* makes this structure hashable */
-};
-
+/* out flow table */
 struct flow *my_flows = NULL;
 
-struct m_pedit_key {
-	__u32           mask;  /* AND */
-	__u32           val;   /*XOR */
-	__u32           off;  /*offset */
-	__u32           at;
-	__u32           offmask;
-	__u32           shift;
-
-	enum pedit_header_type htype;
-	enum pedit_cmd cmd;
-};
-
-struct m_pedit_key_ex {
-	enum pedit_header_type htype;
-	enum pedit_cmd cmd;
-};
-
-struct m_pedit_sel {
-	struct tc_pedit_sel sel;
-	struct tc_pedit_key keys[MAX_OFFS];
-	struct m_pedit_key_ex keys_ex[MAX_OFFS];
-	bool extended;
-};
-
+__attribute__((visibility("hidden")))
 int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
@@ -127,6 +77,7 @@ ok:
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 {
 	struct tc_pedit_sel *sel = &_sel->sel;
@@ -164,6 +115,7 @@ int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
@@ -191,7 +143,7 @@ int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-
+__attribute__((visibility("hidden")))
 int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
@@ -206,7 +158,7 @@ int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-
+__attribute__((visibility("hidden")))
 int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 		    __u8 *mac)
 {
@@ -239,6 +191,7 @@ int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return ret;
 }
 
+__attribute__((visibility("hidden")))
 int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 {
 	struct m_pedit_key_ex *k = sel->keys_ex;
@@ -272,6 +225,7 @@ int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 }
 
 /* http://docs.ros.org/en/diamondback/api/wpa_supplicant/html/common_8c_source.html */
+__attribute__((visibility("hidden")))
 int hex2num(char c)
 {
         if (c >= '0' && c <= '9')
@@ -283,6 +237,7 @@ int hex2num(char c)
         return -1;
 }
 
+__attribute__((visibility("hidden")))
 int hwaddr_aton(const char *txt, __u8 *addr)
 {
         int i;
@@ -304,6 +259,7 @@ int hwaddr_aton(const char *txt, __u8 *addr)
         return 0;
 }
 
+__attribute__((visibility("hidden")))
 int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
         __u32 prio = 0;
@@ -347,6 +303,7 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
 {
