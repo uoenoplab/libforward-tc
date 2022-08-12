@@ -1,4 +1,4 @@
-CC ?= gcc
+CC := gcc
 CFLAGS ?= -W -Wall -g
 INCLUDE_DIRS := -I./include -I/root/Programs/iproute2/include
 LIB_DIRS := -L/root/Programs/iproute2/lib -Wl,-rpath=/root/Programs/lproute2/lib -L$(shell pwd) -Wl,-rpath=$(shell pwd)
