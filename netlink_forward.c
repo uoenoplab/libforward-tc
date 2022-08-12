@@ -37,12 +37,12 @@
 //#define _POSIX_C_SOURCE=199309L
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
-static double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
+double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
 	return (time1->tv_sec - time0->tv_sec) + (time1->tv_nsec - time0->tv_nsec) / 1000000000.0;
 }
 #endif
 
-int initialized = -1;
+static int initialized = -1;
 static char device_name[256];
 static char ingress_qdisc_parent[256];
 static char egress_qdisc_parent[256];
@@ -344,27 +344,28 @@ static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, cons
 		/* nest for pedit */
 		tail3 = addattr_nest(n, MAX_MSG, ++prio);
 		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "pedit", strlen("pedit") + 1);
-	
-		struct m_pedit_key tkey;
-		struct m_pedit_sel sel;
+
+		struct m_pedit_key tkey = { 0 };
+		struct m_pedit_sel sel = { 0 };
 		__u32 mask[4] = { 0 };
 		__u32 val[4] = { 0 };
 		__u32 *m = &mask[0];
 		__u32 *v = &val[0];
 		__u32 retain;
-	
-		/* new src MAC address */
+		int res;
 		sel.extended = true;
+
+		/* new src MAC address */
 		tkey.htype = TCA_PEDIT_KEY_EX_HDR_TYPE_ETH;
 		tkey.off = 6;
 		tkey.cmd = TCA_PEDIT_KEY_EX_CMD_SET;
-		int res = pack_mac(&sel, &tkey, new_src_mac);
-	
+		res = pack_mac(&sel, &tkey, new_src_mac);
+
 		/* new dst MAC address */
 		tkey.off = 0;
 		tkey.cmd = TCA_PEDIT_KEY_EX_CMD_SET;
 		res = pack_mac(&sel, &tkey, new_dst_mac);
-	
+
 		/* new src IP address */
 		bzero(val, sizeof(val));
 		bzero(&tkey, sizeof(tkey));
@@ -643,7 +644,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 
 	/* remove filter if exist TODO */
 	req.n.nlmsg_type = RTM_DELTFILTER;
-	ret = rtnl_talk(&rth, &req.n, NULL);
+	//ret = rtnl_talk(&rth, &req.n, NULL);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &deletion_end_time);
 #endif
