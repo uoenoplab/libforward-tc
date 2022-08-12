@@ -33,6 +33,15 @@
 #define RU16 0xFFFF
 #define RU8 0xFF
 
+#ifdef PROFILE
+//#define _POSIX_C_SOURCE=199309L
+#include <time.h>
+// https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
+static double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
+	return (time1->tv_sec - time0->tv_sec) + (time1->tv_nsec - time0->tv_nsec) / 1000000000.0;
+}
+#endif
+
 int initialized = -1;
 static char device_name[256];
 static char ingress_qdisc_parent[256];
@@ -64,8 +73,7 @@ struct m_pedit_sel {
 	bool extended;
 };
 
-
-int get_tc_classid(__u32 *h, const char *str)
+static int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
 	char *p;
@@ -230,7 +238,6 @@ static int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 		key_start = addattr_nest(n, MAX_MSG,
 					 TCA_PEDIT_KEY_EX | NLA_F_NESTED);
 
-	fprintf(stderr, "pedit_keys_ex_addrattr: sel->sel.nkeys=%d k->htype=%d k->cmd=%d\n", sel->sel.nkeys, k->htype, k->cmd);
 		if (addattr16(n, MAX_MSG, TCA_PEDIT_KEY_EX_HTYPE, k->htype) ||
 		    addattr16(n, MAX_MSG, TCA_PEDIT_KEY_EX_CMD, k->cmd)) {
 			return -1;
@@ -288,7 +295,6 @@ static int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint3
 	 __u8 ip_proto = IPPROTO_TCP;
 	struct tcmsg *t = NLMSG_DATA(n);
 	__be16 tc_proto = TC_H_MIN(t->tcm_info);
-	fprintf(stderr, "TC_H_MIN(t->tcm_info): %u\n", TC_H_MIN(t->tcm_info));
 	addattr_l(n, MAX_MSG, TCA_OPTIONS, NULL, 0);
 
         __u32 flags = 0;
@@ -474,6 +480,14 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 		return 1;
 	}
 
+#ifdef PROFILE
+	struct timespec start_time, end_time;
+	struct timespec create_filter_end_time;
+
+	fprintf(stderr, "Removing rule...\n");
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
+#endif
+
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -503,31 +517,33 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 	else {
 		get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
-	fprintf(stderr, "req.t.tcm_parent: %lu\n", (unsigned long)req.t.tcm_parent);
 
 	// prior
 	prio = 1;
-	fprintf(stderr, "prio: %lu\n", (unsigned long)prio);
 
 	// flower
-	sprintf(addr, "%s", "flower");
-
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
-	fprintf(stderr, "req.t.tcm_info: %lu\n", (unsigned long)req.t.tcm_info);
-	addattr_l(&req.n, sizeof(req), TCA_KIND, addr, strlen(addr)+1);
+	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
-	fprintf(stderr, "req.t.tcm_ifindex: %lu\n", (unsigned long)req.t.tcm_ifindex);
 
 	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
 	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
+#endif
 	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
 	}
-
 	rtnl_close(&rth);
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
+	fprintf(stderr, "Deletion time     : %f s\n", diff_timespec(&end_time, &create_filter_end_time));
+	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
+#endif
 
 	return 0;
 
@@ -560,6 +576,17 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 		return 1;
 	}
 
+#ifdef PROFILE
+	struct timespec start_time, end_time;
+	struct timespec create_filter_end_time;
+	struct timespec create_action_end_time;
+	struct timespec deletion_end_time;
+	struct timespec insertion_end_time;
+
+	fprintf(stderr, "Inserting rule...\n");
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
+#endif
+
 	struct rtnl_handle rth;
 
 	struct {
@@ -588,35 +615,38 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	else {
 		get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
-	//fprintf(stderr, "req.t.tcm_parent: %lu\n", (unsigned long)req.t.tcm_parent);
 
 	// prior
 	prio = 1;
-	//fprintf(stderr, "prio: %lu\n", (unsigned long)prio);
-
 
 	/* use flower classifier and get device index */
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
-	fprintf(stderr, "req.t.tcm_info: %lu\n", (unsigned long)req.t.tcm_info);
 	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
-	fprintf(stderr, "req.t.tcm_ifindex: %lu\n", (unsigned long)req.t.tcm_ifindex);
 
 	/* start nesting message */
 	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
 
 	/* add filter */
 	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
+#endif
 
 	/* add action */
 	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, &req.n);
-
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &create_action_end_time);
+#endif
 	/* stop nesting message */
 	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
 	/* remove filter if exist TODO */
 	req.n.nlmsg_type = RTM_DELTFILTER;
 	ret = rtnl_talk(&rth, &req.n, NULL);
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &deletion_end_time);
+#endif
 
 	/* add new rule */
 	req.n.nlmsg_type = RTM_NEWTFILTER;
@@ -627,6 +657,14 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 
 	rtnl_close(&rth);
 
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
+	fprintf(stderr, "Create action time: %f s\n", diff_timespec(&create_action_end_time, &create_filter_end_time));
+	fprintf(stderr, "Delete time       : %f s\n", diff_timespec(&deletion_end_time, &create_action_end_time));
+	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &deletion_end_time));
+	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
+#endif
 	return 0;
 }
 
