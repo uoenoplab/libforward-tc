@@ -42,12 +42,12 @@ double diff_timespec(const struct timespec *time1, const struct timespec *time0)
 }
 #endif
 
-static int initialized = -1;
-static char device_name[256];
-static char ingress_qdisc_parent[256];
-static char egress_qdisc_parent[256];
-static struct sockaddr_in my_ip;
-static uint8_t my_mac[6];
+int initialized = -1;
+char device_name[256];
+char ingress_qdisc_parent[256];
+char egress_qdisc_parent[256];
+struct sockaddr_in my_ip;
+uint8_t my_mac[6];
 
 struct m_pedit_key {
 	__u32           mask;  /* AND */
@@ -73,7 +73,7 @@ struct m_pedit_sel {
 	bool extended;
 };
 
-static int get_tc_classid(__u32 *h, const char *str)
+int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
 	char *p;
@@ -109,7 +109,7 @@ ok:
 	return 0;
 }
 
-static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
+int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 {
 	struct tc_pedit_sel *sel = &_sel->sel;
 	struct m_pedit_key_ex *keys_ex = _sel->keys_ex;
@@ -146,7 +146,7 @@ static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 	return 0;
 }
 
-static int pack_key16(__u32 retain, struct m_pedit_sel *sel,
+int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
 	int ind, stride;
@@ -174,7 +174,7 @@ static int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 }
 
 
-static int pack_key32(__u32 retain, struct m_pedit_sel *sel,
+int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
 	if (tkey->off > (tkey->off & ~3)) {
@@ -189,7 +189,7 @@ static int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 }
 
 
-static int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
+int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 		    __u8 *mac)
 {
 	int ret = 0;
@@ -221,7 +221,7 @@ static int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return ret;
 }
 
-static int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
+int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 {
 	struct m_pedit_key_ex *k = sel->keys_ex;
 	struct rtattr *keys_start;
@@ -254,7 +254,7 @@ static int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 }
 
 /* http://docs.ros.org/en/diamondback/api/wpa_supplicant/html/common_8c_source.html */
-static int hex2num(char c)
+int hex2num(char c)
 {
         if (c >= '0' && c <= '9')
                 return c - '0';
@@ -265,7 +265,7 @@ static int hex2num(char c)
         return -1;
 }
 
-static int hwaddr_aton(const char *txt, __u8 *addr)
+int hwaddr_aton(const char *txt, __u8 *addr)
 {
         int i;
 
@@ -286,7 +286,7 @@ static int hwaddr_aton(const char *txt, __u8 *addr)
         return 0;
 }
 
-static int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
+int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
         __u32 prio = 0;
         int ret;
@@ -329,7 +329,7 @@ static int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint3
 	return 0;
 }
 
-static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
+int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
 {
 	struct rtattr *tail4;
@@ -498,7 +498,8 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
                 char                    buf[MAX_MSG];
         } req = {
                 .n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
-                .n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
+                //.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
+                .n.nlmsg_flags = NLM_F_REQUEST,
                 .n.nlmsg_type = RTM_DELTFILTER,
                 .t.tcm_family = AF_UNSPEC,
         };
@@ -526,13 +527,14 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
 	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
+	req.t.tcm_handle = 1;
 
-	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
-	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
+//	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
+//	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
-	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
+//	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
@@ -591,15 +593,15 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	struct rtnl_handle rth;
 
 	struct {
-                struct nlmsghdr n;
-                struct tcmsg            t;
-                char                    buf[MAX_MSG];
-        } req = {
-                .n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
-                .n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
-                .n.nlmsg_type = RTM_NEWTFILTER,
-                .t.tcm_family = AF_UNSPEC,
-        };
+		struct nlmsghdr n;
+		struct tcmsg            t;
+		char                    buf[MAX_MSG];
+	} req = {
+		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
+		.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
+		.n.nlmsg_type = RTM_NEWTFILTER,
+		.t.tcm_family = AF_UNSPEC,
+	};
 
 	int ret;
         struct rtattr *tail;
@@ -644,6 +646,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 
 	/* remove filter if exist TODO */
 	req.n.nlmsg_type = RTM_DELTFILTER;
+	req.n.nlmsg_flags = NLM_F_REQUEST,
 	//ret = rtnl_talk(&rth, &req.n, NULL);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &deletion_end_time);
@@ -651,6 +654,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 
 	/* add new rule */
 	req.n.nlmsg_type = RTM_NEWTFILTER;
+	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL | NLM_F_CREATE;
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
