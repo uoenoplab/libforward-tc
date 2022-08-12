@@ -1,3 +1,11 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <errno.h>
+#include <strings.h>
+#include <unistd.h>
+#include <assert.h>
+
 #include <linux/if_ether.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
@@ -10,31 +18,11 @@
 #include <linux/tc_act/tc_pedit.h>
 #include <linux/tc_act/tc_gact.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <errno.h>
-#include <strings.h>
-#include <unistd.h>
-#include <assert.h>
-
 #include "forward.h"
-
-#define MAX_MSG 16384
-#define MAX_OFFS 128
-
-#define TIPV4 1
-#define TIPV6 2
-#define TINT 3
-#define TU32 4
-#define TMAC 5
-
-#define RU32 0xFFFFFFFF
-#define RU16 0xFFFF
-#define RU8 0xFF
+#include "private/common.h"
+#include "uthash.h"
 
 #ifdef PROFILE
-//#define _POSIX_C_SOURCE=199309L
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
 double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
@@ -49,30 +37,10 @@ char egress_qdisc_parent[256];
 struct sockaddr_in my_ip;
 uint8_t my_mac[6];
 
-struct m_pedit_key {
-	__u32           mask;  /* AND */
-	__u32           val;   /*XOR */
-	__u32           off;  /*offset */
-	__u32           at;
-	__u32           offmask;
-	__u32           shift;
+/* out flow table */
+struct flow *my_flows = NULL;
 
-	enum pedit_header_type htype;
-	enum pedit_cmd cmd;
-};
-
-struct m_pedit_key_ex {
-	enum pedit_header_type htype;
-	enum pedit_cmd cmd;
-};
-
-struct m_pedit_sel {
-	struct tc_pedit_sel sel;
-	struct tc_pedit_key keys[MAX_OFFS];
-	struct m_pedit_key_ex keys_ex[MAX_OFFS];
-	bool extended;
-};
-
+__attribute__((visibility("hidden")))
 int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
@@ -109,6 +77,7 @@ ok:
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 {
 	struct tc_pedit_sel *sel = &_sel->sel;
@@ -146,6 +115,7 @@ int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
@@ -173,7 +143,7 @@ int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-
+__attribute__((visibility("hidden")))
 int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
@@ -188,7 +158,7 @@ int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-
+__attribute__((visibility("hidden")))
 int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 		    __u8 *mac)
 {
@@ -221,6 +191,7 @@ int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return ret;
 }
 
+__attribute__((visibility("hidden")))
 int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 {
 	struct m_pedit_key_ex *k = sel->keys_ex;
@@ -254,6 +225,7 @@ int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 }
 
 /* http://docs.ros.org/en/diamondback/api/wpa_supplicant/html/common_8c_source.html */
+__attribute__((visibility("hidden")))
 int hex2num(char c)
 {
         if (c >= '0' && c <= '9')
@@ -265,6 +237,7 @@ int hex2num(char c)
         return -1;
 }
 
+__attribute__((visibility("hidden")))
 int hwaddr_aton(const char *txt, __u8 *addr)
 {
         int i;
@@ -286,6 +259,7 @@ int hwaddr_aton(const char *txt, __u8 *addr)
         return 0;
 }
 
+__attribute__((visibility("hidden")))
 int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
         __u32 prio = 0;
@@ -329,6 +303,7 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 	return 0;
 }
 
+__attribute__((visibility("hidden")))
 int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
 {
@@ -498,7 +473,6 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
                 char                    buf[MAX_MSG];
         } req = {
                 .n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
-                //.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
                 .n.nlmsg_flags = NLM_F_REQUEST,
                 .n.nlmsg_type = RTM_DELTFILTER,
                 .t.tcm_family = AF_UNSPEC,
@@ -508,6 +482,23 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
         struct rtattr *tail;
         __u32 prio = 0;
 	char addr[256];
+
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *existing_flow = NULL;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+	memcpy(this_flow->flow_id.src_mac, src_mac, sizeof(uint8_t) * 6);
+	memcpy(this_flow->flow_id.dst_mac, dst_mac, sizeof(uint8_t) * 6);
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+
+	if (!existing_flow) {
+		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow\n");
+		free(this_flow);
+		return 2;
+	}
 
 	ret = rtnl_open(&rth, 0);
 	assert(ret == 0);
@@ -527,20 +518,18 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
 	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
-	req.t.tcm_handle = 1;
+	req.t.tcm_handle = existing_flow->handle;
 
-//	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
-//	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
-//	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
 	}
 	rtnl_close(&rth);
+	free(this_flow);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
@@ -583,7 +572,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	struct timespec start_time, end_time;
 	struct timespec create_filter_end_time;
 	struct timespec create_action_end_time;
-	struct timespec deletion_end_time;
+	struct timespec hashing_end_time;
 	struct timespec insertion_end_time;
 
 	fprintf(stderr, "Inserting rule...\n");
@@ -598,7 +587,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 		char                    buf[MAX_MSG];
 	} req = {
 		.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct tcmsg)),
-		.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL|NLM_F_CREATE,
+		.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE,
 		.n.nlmsg_type = RTM_NEWTFILTER,
 		.t.tcm_family = AF_UNSPEC,
 	};
@@ -635,29 +624,64 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
-
 	/* add action */
 	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, &req.n);
+	/* stop nesting message */
+	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_action_end_time);
 #endif
-	/* stop nesting message */
-	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 
-	/* remove filter if exist TODO */
-	req.n.nlmsg_type = RTM_DELTFILTER;
-	req.n.nlmsg_flags = NLM_F_REQUEST,
-	//ret = rtnl_talk(&rth, &req.n, NULL);
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *existing_flow;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+	memcpy(this_flow->flow_id.src_mac, src_mac, sizeof(uint8_t) * 6);
+	memcpy(this_flow->flow_id.dst_mac, dst_mac, sizeof(uint8_t) * 6);
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 #ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &deletion_end_time);
+	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
 #endif
 
-	/* add new rule */
-	req.n.nlmsg_type = RTM_NEWTFILTER;
-	req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_EXCL | NLM_F_CREATE;
-	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
-		fprintf(stderr, "We have an error talking to the kernel\n");
-		return 2;
+	if (existing_flow) {
+		/* if flow is existing, extract the flow handle number */
+		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", sport, dport);
+		free(this_flow);
+		req.t.tcm_handle = existing_flow->handle;
+
+		/* add new rule */
+		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
+			fprintf(stderr, "We have an error talking to the kernel\n");
+			rtnl_close(&rth);
+			return 2;
+		}
+	}
+	else {
+		/* if flow is new, generate new random handle number */
+		req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+		unsigned int trial_count = 0;
+		req.n.nlmsg_flags |= NLM_F_EXCL;
+
+		/* in case of collision, repeat 3 times */
+		while (rtnl_talk(&rth, &req.n, NULL) < 0 && trial_count++ < 3) {
+			req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+			fprintf(stderr, "WARNING: libforward-tc: insertion new rule: retry %d\n", trial_count);
+		}
+
+		/* fail if unsuccessful */
+		if (trial_count > 3) {
+			free(this_flow);
+			rtnl_close(&rth);
+			fprintf(stderr, "ERROR: libforward-tc: Fail to insert rule after 5 trials\n");
+			return 2;
+		}
+
+		/* add flow to hash table */
+		this_flow->handle = req.t.tcm_handle;
+		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
 	}
 
 	rtnl_close(&rth);
@@ -666,8 +690,8 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
 	fprintf(stderr, "Create action time: %f s\n", diff_timespec(&create_action_end_time, &create_filter_end_time));
-	fprintf(stderr, "Delete time       : %f s\n", diff_timespec(&deletion_end_time, &create_action_end_time));
-	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &deletion_end_time));
+	fprintf(stderr, "Hashing time      : %f s\n", diff_timespec(&hashing_end_time, &create_action_end_time));
+	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &hashing_end_time));
 	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 	return 0;
@@ -752,4 +776,23 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 #endif
 	initialized = 1;
 	return 1;
+}
+
+__attribute__((destructor))
+int fini_forward()
+{
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+
+	struct flow *current_flow, *tmp;
+	HASH_ITER(hh, my_flows, current_flow, tmp) {
+		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.src_mac, current_flow->flow_id.dst_ip,
+				current_flow->flow_id.dst_mac, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+		HASH_DEL(my_flows, current_flow);
+		free(current_flow);
+	}
+
+	return 0;
 }
