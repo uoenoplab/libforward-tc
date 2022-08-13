@@ -1,4 +1,5 @@
-# Setting up libforward-tc on Netronome smart NIC
+
+# Setting up `libforward-tc` on Netronome smart NIC
 Install the tc-flower firmware and make sure it is at the right location.
 ## Installing the flower firmware for the NIC
 Follow the instruction from the support website to setup the repository and to install the firmwares. After that, link the firmware in the correction location:
@@ -166,3 +167,55 @@ int apply_redirection(const uint32_t src_ip,  const uint8_t *src_mac, const uint
 ```
 The library needs to be initialized with the interface name, ingress qdisc (e.g. `ffff:`), and egress qdisc (e.g. `1:`). `fini_forward()` is automatically called when an application terminates to cleanup all the filters installed the library. Comment `__attribute__((destructor))` in `netlink_forward.c` if exit cleanup is not needed. Note that the flow entries and their unique qdisc handles are not persisted. For addresses in strings, the `_str` versions can be used to convert the addresses into integer(s).
 An example is in `src/main.c`. The libary can be used by linking against `libforward-tc.so`. The `rpath`has been set so be aware when moving `libforward.so` elsewhere. The header is in `include/forward.h`.
+# Example
+This example redirect TCP traffic between three machines.
+```
+n05--->n06--->n29
+ ^_____________|
+```
+`hping3` from `n05` to `n06` is forwarded to `n29` and replied to `n05` as if the response is from `n06`.
+## Setup `n06`
+Forward incoming packets from `n05` to `n29`. Block all reverse flow from `n06` to `n05` to prevent `n06` from responding.
+```c
+apply_redirection_str("192.168.11.164", "3c:fd:fe:e5:a4:d0", "192.168.11.131", "00:15:4d:13:70:b5",
+						8888, 8889,
+						"192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.13", "98:03:9b:85:f3:42",
+						9000, 9001, false);
+
+apply_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+						8889, 8888,
+						"192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+						8889, 8888, true);
+
+```
+## Setup `n29`
+Capture the respons from `n29` and modify the source IP address to disguise as a response from `n06`. Do not modify the source MAC address to avoid confushing the switching table.
+```c
+apply_redirection_str("192.168.11.13", "98:03:9b:85:f3:42", "192.168.11.131", "00:15:4d:13:70:b5",
+						9001, 9000,
+						"192.168.11.131", "98:03:9b:85:f3:42", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+						8889, 8888, false);
+
+```
+## Ping from `n05`
+Ping from `n05` to verify the setup.
+```console
+# hping3 -s 8888 -p 8889 -k 192.168.11.131
+HPING 192.168.11.131 (enp1s0f0 192.168.11.131): NO FLAGS are set, 40 headers + 0 data bytes
+len=46 ip=192.168.11.131 ttl=64 DF id=0 sport=8889 flags=RA seq=0 win=0 rtt=7.8 ms
+DUP! len=46 ip=192.168.11.131 ttl=64 DF id=0 sport=8889 flags=RA seq=0 win=0 rtt=1007.8 ms
+```
+Check `tcpdump` on `n05` to monitor the flows.
+```console
+# tcpdump -i enp1s0f0 -e -n -v tcp 
+tcpdump: listening on enp1s0f0, link-type EN10MB (Ethernet), capture size 262144 bytes
+23:03:38.211793 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 45388, offset 0, flags [none], proto TCP (6), length 40)
+    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0xd4ce (correct), win 512, length 0
+23:03:38.211855 98:03:9b:85:f3:42 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40, bad cksum a2ef (->a258)!)
+    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x8217 (incorrect -> 0x8260), seq 0, ack 1037177269, win 0, length 0
+23:03:39.211921 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 17576, offset 0, flags [none], proto TCP (6), length 40)
+    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0x0354 (correct), win 512, length 0
+23:03:39.212003 98:03:9b:85:f3:42 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40, bad cksum a2ef (->a258)!)
+    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x41fb (incorrect -> 0x4244), seq 0, ack 3562695619, win 0, length 0
+```
+Notice how the respone message from "`n06`" has `n06`'s IP address and `n29`'s MAC address.
