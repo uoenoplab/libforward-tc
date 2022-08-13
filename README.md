@@ -141,7 +141,7 @@ qdisc ingress ffff: parent ffff:fff1 ----------------
 ```
 Remember the parent handle as they need to be passed to the library.
 ## Manipulate IPv4 flows
-Using `libforward-tc`, you can install flow redirection based in source and destination MAC addresses and source and destination IPv4 addresses. Flows can be blocked by turning the `block` to `true`. If the source IP address matches the source IP address of the filter, it will be attached to the egress qdisc.
+Using `libforward-tc`, you can install flow redirection based in source and destination MAC addresses and source and destination IPv4 addresses. Flows can be blocked by turning the `block` to `true`. If the source IP address of the filter matches the source IP address of the interface, it will be attached to the egress qdisc.
 ```c
 int init_forward(const char *interface_name, const char *ingress_qdisc_parent, const char *egress_qdisc_parent);
 int fini_forward();
