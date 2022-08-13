@@ -160,7 +160,7 @@ int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 
 __attribute__((visibility("hidden")))
 int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
-		    __u8 *mac)
+		    const __u8 *mac)
 {
 	int ret = 0;
 
@@ -458,7 +458,7 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
-	struct timespec create_filter_end_time;
+	struct timespec hash_end_time;
 
 	fprintf(stderr, "Removing rule...\n");
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
@@ -499,6 +499,9 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 		free(this_flow);
 		return 2;
 	}
+#ifdef PROFILE
+	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
+#endif
 
 	ret = rtnl_open(&rth, 0);
 	assert(ret == 0);
@@ -520,21 +523,19 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 	req.t.tcm_ifindex = if_nametoindex(device_name);
 	req.t.tcm_handle = existing_flow->handle;
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
-#endif
-
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		return 2;
 	}
 	rtnl_close(&rth);
+	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
+	free(existing_flow);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
-	fprintf(stderr, "Deletion time     : %f s\n", diff_timespec(&end_time, &create_filter_end_time));
-	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
+	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
+	fprintf(stderr, "Deletion time : %f s\n", diff_timespec(&end_time, &hash_end_time));
+	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 
 	return 0;
@@ -790,8 +791,6 @@ int fini_forward()
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.src_mac, current_flow->flow_id.dst_ip,
 				current_flow->flow_id.dst_mac, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
-		HASH_DEL(my_flows, current_flow);
-		free(current_flow);
 	}
 
 	return 0;
