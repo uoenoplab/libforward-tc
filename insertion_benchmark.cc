@@ -2,12 +2,16 @@
 #include <random>
 #include <chrono>
 #include <cassert>
+#include <cstring>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+#include <sys/ioctl.h>
+#include <linux/if.h>
 
 #include <arpa/inet.h>
 
 #include "forward.h"
-
-//#define MAX_FLOWS 262144
 
 struct flows {
 	uint32_t *src_ip;
@@ -34,13 +38,48 @@ struct flows {
 
 int main(int argc, char *argv[])
 {
-	if (argc != 5) {
-		fprintf(stderr, "Useage: %s [device name] [ingress qdisc] [egress qdisc] [no. of rules]\n", argv[0]);
+	if (argc != 7) {
+		fprintf(stderr, "Useage: %s [device name] [ingress qdisc] [egress qdisc] [pedit/block/mix] [in/out] [no. of rules]\n", argv[0]);
 		exit(1);
 	}
 
 	struct flows random_flows;
-	unsigned long MAX_FLOWS = atol(argv[4]);
+	unsigned long MAX_FLOWS = atol(argv[6]);
+
+	int action;
+	if (strcmp(argv[4], "pedit") == 0)
+		action = 0;
+	else if (strcmp(argv[4], "block") == 0)
+		action = 1;
+	else
+		action = 2;
+
+	int direction;
+	if (strcmp(argv[5], "in") == 0)
+		direction = 1;
+	else
+		direction = 0;
+
+	struct ifreq interface_request;
+	memcpy(interface_request.ifr_name, argv[1], strlen(argv[1])+1);
+	interface_request.ifr_name[strlen(argv[1])] = 0;
+	struct sockaddr_in my_ip;
+	int fd;
+
+	if ((fd = socket(AF_INET,SOCK_DGRAM, 0)) == -1) {
+		fprintf(stderr, "fail to open simple socket: %s\n", strerror(errno));
+		return -1;
+	}
+
+
+	/* resolve interface IP address */
+	if (ioctl(fd, SIOCGIFADDR, &interface_request) == -1) {
+		fprintf(stderr, "fail to request interface: %s\n", strerror(errno));
+		close(fd);
+		return -1;
+	}
+	memcpy(&my_ip, &interface_request.ifr_addr, sizeof(struct sockaddr_in));
+        close(fd);
 
 	std::random_device rd;
 	std::mt19937 mt(rd());
@@ -68,8 +107,11 @@ int main(int argc, char *argv[])
 	init_forward(argv[1], argv[2], argv[3]);
 	std::cout << "Initializing " << MAX_FLOWS << " rules..." << std::endl;
 	for (unsigned long i = 0; i < MAX_FLOWS; i++) {
-		//inet_pton(AF_INET, "192.168.11.131", &random_flows.src_ip[i]);
-		random_flows.src_ip[i] = u32_rand(mt);
+		if (direction == 1)
+			random_flows.src_ip[i] = u32_rand(mt);
+		else
+			random_flows.src_ip[i] = my_ip.sin_addr.s_addr;
+
 		random_flows.dst_ip[i] = u32_rand(mt);
 
 		random_flows.sport[i] = u16_rand(mt);
@@ -81,8 +123,10 @@ int main(int argc, char *argv[])
 		random_flows.new_sport[i] = u16_rand(mt);
 		random_flows.new_dport[i] = u16_rand(mt);
 
-		random_flows.block[i] = bool_rand(mt);
-		//random_flows.block[i] = 1;
+		if (action == 2)
+			random_flows.block[i] = bool_rand(mt);
+		else
+			random_flows.block[i] = action;
 
 		struct in_addr addr;
 		addr.s_addr = random_flows.src_ip[i];
@@ -113,16 +157,16 @@ int main(int argc, char *argv[])
 	std::cout << "Total insertion time: " << (double)duration_ns * (double)1e-9 << " s" << std::endl;
 	std::cout << "Insertion rate      : " << (double)MAX_FLOWS / ((double)duration_ns * (double)1e-9) << " rules/s" << std::endl;
 
-//	std::cout << "Begin removal..." << std::endl;
-//	start = std::chrono::steady_clock::now();
-//	for (unsigned long i = 0; i < MAX_FLOWS; i++) {
-//		remove_redirection(random_flows.src_ip[i], &random_flows.src_mac[i * 8], random_flows.dst_ip[i], &random_flows.dst_mac[i * 8],
-//				   random_flows.sport[i], random_flows.dport[i]);
-//	}
-//	stop = std::chrono::steady_clock::now();
-//	duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds> (stop - start).count();
-//	std::cout << "Total removal time: " << (double)duration_ns * (double)1e-9 << " s" << std::endl;
-//	std::cout << "Removal rate      : " << (double)MAX_FLOWS / ((double)duration_ns * (double)1e-9) << " rules/s" << std::endl;
+	std::cout << "Begin removal..." << std::endl;
+	start = std::chrono::steady_clock::now();
+	for (unsigned long i = 0; i < MAX_FLOWS; i++) {
+		remove_redirection(random_flows.src_ip[i], &random_flows.src_mac[i * 8], random_flows.dst_ip[i], &random_flows.dst_mac[i * 8],
+				   random_flows.sport[i], random_flows.dport[i]);
+	}
+	stop = std::chrono::steady_clock::now();
+	duration_ns = std::chrono::duration_cast<std::chrono::nanoseconds> (stop - start).count();
+	std::cout << "Total removal time: " << (double)duration_ns * (double)1e-9 << " s" << std::endl;
+	std::cout << "Removal rate      : " << (double)MAX_FLOWS / ((double)duration_ns * (double)1e-9) << " rules/s" << std::endl;
 
 	free(random_flows.src_ip);
 	free(random_flows.dst_ip);
