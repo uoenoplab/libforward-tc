@@ -305,7 +305,7 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 
 __attribute__((visibility("hidden")))
 int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
-		const uint16_t new_sport, const uint16_t new_dport, const bool block, struct nlmsghdr *n)
+		const uint16_t new_sport, const uint16_t new_dport, const bool block, const int direction, struct nlmsghdr *n)
 {
 	struct rtattr *tail4;
 	struct rtattr *tail3;
@@ -388,6 +388,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		res = pack_key16(retain, &sel, &tkey);
 
 		/* pack pedit actions */
+		sel.sel.action = TC_ACT_PIPE;
 		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
 		addattr_l(n, MAX_MSG, TCA_PEDIT_PARMS_EX, &sel, sizeof(sel.sel) + sel.sel.nkeys * sizeof(struct tc_pedit_key));
 		pedit_keys_ex_addattr(&sel, n);
@@ -401,6 +402,10 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "csum", strlen("csum") + 1);
 
 		struct tc_csum csum_sel = {};
+		if (direction) {
+			/* pass to mirred if not on egress path */
+			csum_sel.action = TC_ACT_PIPE;
+		}
 		csum_sel.update_flags |= TCA_CSUM_UPDATE_FLAG_IPV4HDR;
 		csum_sel.update_flags |= TCA_CSUM_UPDATE_FLAG_TCP;
 
@@ -411,21 +416,23 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 		addattr_nest_end(n, tail3);
 		/* end csum edit */
 
-		/* add mirred edit */
-		tail3 = addattr_nest(n, MAX_MSG, ++prio);
-		addattr_l(n, MAX_MSG, TCA_ACT_KIND, "mirred", strlen("mirred") + 1);
-
-		struct tc_mirred mirred_p = {};
-		mirred_p.eaction = TCA_EGRESS_REDIR;
-		mirred_p.action = TC_ACT_STOLEN;
-		mirred_p.ifindex = if_nametoindex(device_name);
-
-		tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
-		addattr_l(n, MAX_MSG, TCA_MIRRED_PARMS, &mirred_p, sizeof(mirred_p));
-		addattr_nest_end(n, tail4);
-
-		addattr_nest_end(n, tail3);
-		/* end mirred edit */
+		if (direction) {
+			/* add mirred edit if not on egress path */
+			tail3 = addattr_nest(n, MAX_MSG, ++prio);
+			addattr_l(n, MAX_MSG, TCA_ACT_KIND, "mirred", strlen("mirred") + 1);
+	
+			struct tc_mirred mirred_p = {};
+			mirred_p.eaction = TCA_EGRESS_REDIR;
+			mirred_p.action = TC_ACT_STOLEN;
+			mirred_p.ifindex = if_nametoindex(device_name);
+	
+			tail4 = addattr_nest(n, MAX_MSG, TCA_ACT_OPTIONS | NLA_F_NESTED);
+			addattr_l(n, MAX_MSG, TCA_MIRRED_PARMS, &mirred_p, sizeof(mirred_p));
+			addattr_nest_end(n, tail4);
+	
+			addattr_nest_end(n, tail3);
+			/* end mirred edit */
+		}
 	}
 	else {
 		/* add drop */
@@ -626,7 +633,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
 	/* add action */
-	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, &req.n);
+	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, src_ip == my_ip.sin_addr.s_addr ? 0 : 1, &req.n);
 	/* stop nesting message */
 	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
 #ifdef PROFILE
@@ -779,7 +786,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 	return 1;
 }
 
-__attribute__((destructor))
+//__attribute__((destructor))
 int fini_forward()
 {
 	if (initialized != 1) {

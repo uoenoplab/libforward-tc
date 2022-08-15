@@ -171,32 +171,31 @@ An example is in `src/main.c`. The libary can be used by linking against `libfor
 # Example
 This example redirect TCP traffic between three machines.
 ```
-n05--->n06--->n29
+n05--->n06--->n08
  ^_____________|
 ```
-`hping3` from `n05` to `n06` is forwarded to `n29` and replied to `n05` as if the response is from `n06`.
+`hping3` from `n05` to `n06` is forwarded to `n08` and replied to `n05` as if the response is from `n06`.
 ## Setup `n06`
-Forward incoming packets from `n05` to `n29`. Block all reverse flow from `n06` to `n05` to prevent `n06` from responding.
+Forward incoming packets from `n05` to `n08`. Block all reverse flow from `n06` to `n05` to prevent `n06` from responding.
 ```c
 apply_redirection_str("192.168.11.164", "3c:fd:fe:e5:a4:d0", "192.168.11.131", "00:15:4d:13:70:b5",
-						8888, 8889,
-						"192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.13", "98:03:9b:85:f3:42",
-						9000, 9001, false);
+		      (uint16_t)8888, (uint16_t)8889,
+                      "192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.141", "3c:ec:ef:63:1a:a8",
+		      (uint16_t)9000, (uint16_t)9001, false);
 
-apply_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
-						8889, 8888,
-						"192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
-						8889, 8888, true);
+apply_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.141", "3c:ec:ef:63:1a:a8",
+			9000, 9001,
+			"192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.141", "3c:ec:ef:63:1a:a8",
+			9000, 9001, true);
 
 ```
-## Setup `n29`
-Capture the respons from `n29` and modify the source IP address to disguise as a response from `n06`. Do not modify the source MAC address to avoid confushing the switching table.
+## Setup `n08`
+Capture the respons from `n08` and modify the source IP address to disguise as a response from `n06`. Do not modify the source MAC address to avoid confushing the switching table.
 ```c
-apply_redirection_str("192.168.11.13", "98:03:9b:85:f3:42", "192.168.11.131", "00:15:4d:13:70:b5",
-						9001, 9000,
-						"192.168.11.131", "98:03:9b:85:f3:42", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
-						8889, 8888, false);
-
+apply_redirection_str("192.168.11.141", "3c:ec:ef:63:1a:a8", "192.168.11.131", "00:15:4d:13:70:b5",
+			9001, 9000,
+			"192.168.11.131", "3c:ec:ef:63:1a:a8", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
+			8889, 8888, false);
 ```
 ## Ping from `n05`
 Ping from `n05` to verify the setup.
@@ -208,15 +207,15 @@ DUP! len=46 ip=192.168.11.131 ttl=64 DF id=0 sport=8889 flags=RA seq=0 win=0 rtt
 ```
 Check `tcpdump` on `n05` to monitor the flows.
 ```console
-# tcpdump -i enp1s0f0 -e -n -v tcp 
+~# tcpdump -i enp1s0f0 -e -v -n tcp
 tcpdump: listening on enp1s0f0, link-type EN10MB (Ethernet), capture size 262144 bytes
-23:03:38.211793 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 45388, offset 0, flags [none], proto TCP (6), length 40)
-    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0xd4ce (correct), win 512, length 0
-23:03:38.211855 98:03:9b:85:f3:42 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40, bad cksum a2ef (->a258)!)
-    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x8217 (incorrect -> 0x8260), seq 0, ack 1037177269, win 0, length 0
-23:03:39.211921 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 17576, offset 0, flags [none], proto TCP (6), length 40)
-    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0x0354 (correct), win 512, length 0
-23:03:39.212003 98:03:9b:85:f3:42 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40, bad cksum a2ef (->a258)!)
-    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x41fb (incorrect -> 0x4244), seq 0, ack 3562695619, win 0, length 0
+17:33:11.468475 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 20545, offset 0, flags [none], proto TCP (6), length 40)
+    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0xa5d4 (correct), win 512, length 0
+17:33:11.468684 3c:ec:ef:63:1a:a8 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40)
+    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x0a79 (correct), seq 0, ack 1337161659, win 0, length 0
+17:33:12.468587 3c:fd:fe:e5:a4:d0 > 00:15:4d:13:70:b5, ethertype IPv4 (0x0800), length 54: (tos 0x0, ttl 64, id 9261, offset 0, flags [none], proto TCP (6), length 40)
+    192.168.11.164.8888 > 192.168.11.131.8889: Flags [none], cksum 0xba4b (correct), win 512, length 0
+17:33:12.468792 3c:ec:ef:63:1a:a8 > 3c:fd:fe:e5:a4:d0, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 64, id 0, offset 0, flags [DF], proto TCP (6), length 40)
+    192.168.11.131.8889 > 192.168.11.164.8888: Flags [R.], cksum 0x00ff (correct), seq 0, ack 163053507, win 0, length 0
 ```
-Notice how the respone message from "`n06`" has `n06`'s IP address and `n29`'s MAC address.
+Notice how the respone message from "`n06`" has `n06`'s IP address and `n08`'s MAC address.
