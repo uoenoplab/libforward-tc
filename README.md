@@ -17,7 +17,7 @@ Reload the driver to load the new firmware.
 # modprobe -v nfp
 insmod /lib/modules/5.8.0-25-generic/kernel/drivers/net/ethernet/netronome/nfp/nfp.ko 
 ```
-Make sure the new firmware is loaded. Check if BPF is listed as the capability.
+Make sure the new firmware is loaded. Check if FLOWER is listed as the capability.
 ```console
 # dmesg | grep nfp
 ..
