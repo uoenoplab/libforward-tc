@@ -88,7 +88,7 @@ remote: Compressing objects: 100% (1252/1252), done.
 remote: Total 32969 (delta 2814), reused 3582 (delta 2707), pack-reused 28964
 Receiving objects: 100% (32969/32969), 11.44 MiB | 9.30 MiB/s, done.
 Resolving deltas: 100% (24009/24009), done.
-cd iproute2/
+# cd iproute2/
 # ./configure 
 TC schedulers
  ATM	no
@@ -121,6 +121,7 @@ Submodule 'uthash' (https://github.com/troydhanson/uthash.git) registered for pa
 Cloning into '/tmp/libforward-tc/uthash'...
 Submodule path 'uthash': checked out 'e493aa90a2833b4655927598f169c31cfcdf7861'
 # make
+...
 # ldd libforward-tc.so
 root@n06:/tmp/libforward-tc# ldd libforward-tc.so
 	linux-vdso.so.1 (0x00007ffd9354f000)
