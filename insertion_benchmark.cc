@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
 	std::cout << "Begin insertion..." << std::endl;
 	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 	for (unsigned long i = 0; i < MAX_FLOWS; i++) {
-		assert (apply_redirection(random_flows.src_ip[i], &random_flows.src_mac[i * 8], random_flows.dst_ip[i], &random_flows.dst_mac[i * 8],
+		assert (apply_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 					  random_flows.sport[i], random_flows.dport[i],
 					  random_flows.new_src_ip[i], &random_flows.new_src_mac[i * 8], random_flows.new_dst_ip[i], &random_flows.new_dst_mac[i * 8],
 					  random_flows.new_sport[i], random_flows.new_dport[i], random_flows.block[i]) == 0);
@@ -160,7 +160,7 @@ int main(int argc, char *argv[])
 	std::cout << "Begin removal..." << std::endl;
 	start = std::chrono::steady_clock::now();
 	for (unsigned long i = 0; i < MAX_FLOWS; i++) {
-		remove_redirection(random_flows.src_ip[i], &random_flows.src_mac[i * 8], random_flows.dst_ip[i], &random_flows.dst_mac[i * 8],
+		remove_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 				   random_flows.sport[i], random_flows.dport[i]);
 	}
 	stop = std::chrono::steady_clock::now();

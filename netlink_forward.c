@@ -260,7 +260,7 @@ int hwaddr_aton(const char *txt, __u8 *addr)
 }
 
 __attribute__((visibility("hidden")))
-int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
+int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
         __u32 prio = 0;
         int ret;
@@ -288,11 +288,11 @@ int add_filter(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst
 	uint8_t mask[6];
 	memset(mask, 0xff, ETH_ALEN);
 
-	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_DST, dst_mac, sizeof(uint8_t) * 6);
-	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_DST_MASK, mask, sizeof(mask));
+//	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_DST, dst_mac, sizeof(uint8_t) * 6);
+//	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_DST_MASK, mask, sizeof(mask));
 
-	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_SRC, src_mac, sizeof(uint8_t) * 6);
-	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_SRC_MASK, mask, sizeof(mask));
+//	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_SRC, src_mac, sizeof(uint8_t) * 6);
+//	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_ETH_SRC_MASK, mask, sizeof(mask));
 
 	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_IPV4_DST, &dst_ip, sizeof(uint32_t));
 	addattr_l(n, MAX_MSG, TCA_FLOWER_KEY_IPV4_SRC, &src_ip, sizeof(uint32_t));
@@ -456,7 +456,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 	return 0;
 }
 
-int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport)
+int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
@@ -497,8 +497,6 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	memcpy(this_flow->flow_id.src_mac, src_mac, sizeof(uint8_t) * 6);
-	memcpy(this_flow->flow_id.dst_mac, dst_mac, sizeof(uint8_t) * 6);
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 	if (!existing_flow) {
@@ -549,25 +547,18 @@ int remove_redirection(const uint32_t src_ip, const uint8_t *src_mac, const uint
 
 }
 
-int remove_redirection_str(const char *src_ip_str, const char *src_mac_str, const char *dst_ip_str, const char *dst_mac_str, const uint16_t sport, const uint16_t dport)
+int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
 
-	uint8_t src_mac[6];
-	uint8_t dst_mac[6];
-
-	hwaddr_aton(src_mac_str, src_mac);
-	hwaddr_aton(dst_mac_str, dst_mac);
-
 	inet_pton(AF_INET, src_ip_str, &src_ip);
 	inet_pton(AF_INET, dst_ip_str, &dst_ip);
 
-	return remove_redirection(src_ip, src_mac, dst_ip, dst_mac, htons(sport), htons(dport));
+	return remove_redirection(src_ip, dst_ip, htons(sport), htons(dport));
 }
 
-int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
-			const uint32_t dst_ip, const uint8_t *dst_mac, const uint16_t sport, const uint16_t dport,
+int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
 			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 			const uint16_t new_sport, const uint16_t new_dport, const bool block)
 {
@@ -628,7 +619,7 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
 
 	/* add filter */
-	add_filter(src_ip, src_mac, dst_ip, dst_mac, sport, dport, &req.n);
+	add_filter(src_ip, dst_ip, sport, dport, &req.n);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
@@ -647,8 +638,6 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	memcpy(this_flow->flow_id.src_mac, src_mac, sizeof(uint8_t) * 6);
-	memcpy(this_flow->flow_id.dst_mac, dst_mac, sizeof(uint8_t) * 6);
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
@@ -705,16 +694,12 @@ int apply_redirection(const uint32_t src_ip, const uint8_t *src_mac,
 	return 0;
 }
 
-int apply_redirection_str(const char *src_ip_str, const char *src_mac_str, const char *dst_ip_str, const char *dst_mac_str,
-			const uint16_t sport, const uint16_t dport,
+int apply_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport,
 			const char *new_src_ip_str, const char *new_src_mac_str, const char *new_dst_ip_str, const char *new_dst_mac_str,
 			const uint16_t new_sport, const uint16_t new_dport, const bool block)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
-
-	uint8_t src_mac[6];
-	uint8_t dst_mac[6];
 
 	uint32_t new_src_ip;
 	uint32_t new_dst_ip;
@@ -722,8 +707,6 @@ int apply_redirection_str(const char *src_ip_str, const char *src_mac_str, const
 	uint8_t new_src_mac[6];
 	uint8_t new_dst_mac[6];
 
-	hwaddr_aton(src_mac_str, src_mac);
-	hwaddr_aton(dst_mac_str, dst_mac);
 	hwaddr_aton(new_src_mac_str, new_src_mac);
 	hwaddr_aton(new_dst_mac_str, new_dst_mac);
 
@@ -732,7 +715,7 @@ int apply_redirection_str(const char *src_ip_str, const char *src_mac_str, const
 	inet_pton(AF_INET, new_src_ip_str, &new_src_ip);
 	inet_pton(AF_INET, new_dst_ip_str, &new_dst_ip);
 
-	return apply_redirection(src_ip, src_mac, dst_ip, dst_mac, htons(sport), htons(dport), new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, htons(new_sport), htons(new_dport), block);
+	return apply_redirection(src_ip, dst_ip, htons(sport), htons(dport), new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, htons(new_sport), htons(new_dport), block);
 }
 
 int init_forward(const char *interface_name, const char *ingress_qdisc, const char *egress_qdisc)
@@ -796,8 +779,7 @@ int fini_forward()
 
 	struct flow *current_flow, *tmp;
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
-		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.src_mac, current_flow->flow_id.dst_ip,
-				current_flow->flow_id.dst_mac, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
 
 	return 0;

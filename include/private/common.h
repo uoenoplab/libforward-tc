@@ -21,8 +21,8 @@
 struct flow_key {
 	uint32_t src_ip;
 	uint32_t dst_ip;
-	uint8_t src_mac[6];
-	uint8_t dst_mac[6];
+//	uint8_t src_mac[6];
+//	uint8_t dst_mac[6];
 	uint16_t src_port;
 	uint16_t dst_port;
 };
