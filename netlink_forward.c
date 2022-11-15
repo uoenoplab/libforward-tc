@@ -456,7 +456,7 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 	return 0;
 }
 
-int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
+int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, const bool block)
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
@@ -492,11 +492,13 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 
 	/* check if flow is in system */
 	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	memset(this_flow, 0, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	this_flow->flow_id.block = block;
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 	if (!existing_flow) {
@@ -520,7 +522,12 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	}
 
 	// prior
-	prio = 1;
+	if (block) {
+		prio = 2;
+	}
+	else {
+		prio = 1;
+	}
 
 	// flower
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
@@ -547,7 +554,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 
 }
 
-int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
+int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport, const bool block)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
@@ -555,7 +562,7 @@ int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const
 	inet_pton(AF_INET, src_ip_str, &src_ip);
 	inet_pton(AF_INET, dst_ip_str, &dst_ip);
 
-	return remove_redirection(src_ip, dst_ip, htons(sport), htons(dport));
+	return remove_redirection(src_ip, dst_ip, htons(sport), htons(dport), block);
 }
 
 int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
@@ -608,7 +615,12 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	}
 
 	// prior
-	prio = 1;
+	if (block) {
+		prio = 2;
+	}
+	else {
+		prio = 1;
+	}
 
 	/* use flower classifier and get device index */
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
@@ -633,11 +645,13 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 	/* check if flow is in system */
 	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	memset(this_flow, 0, sizeof(struct flow));
 	struct flow *existing_flow;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	this_flow->flow_id.block = block;
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
@@ -779,7 +793,7 @@ int fini_forward()
 
 	struct flow *current_flow, *tmp;
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
-		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port, current_flow->flow_id.block);
 	}
 
 	return 0;

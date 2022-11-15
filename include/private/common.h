@@ -25,6 +25,7 @@ struct flow_key {
 //	uint8_t dst_mac[6];
 	uint16_t src_port;
 	uint16_t dst_port;
+	bool block;
 };
 
 struct flow {

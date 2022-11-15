@@ -12,9 +12,9 @@ int init_forward(const char *interface_name, const char *ingress_qdisc_parent, c
 int fini_forward();
 
 int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str,
-			   const uint16_t sport, const uint16_t dport);
+			   const uint16_t sport, const uint16_t dport, const bool block);
 int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip,
-			const uint16_t sport, const uint16_t dport);
+			const uint16_t sport, const uint16_t dport, const bool block);
 
 int apply_redirection_str(const char *src_ip_str, const char *dst_ip_str,
 			  const uint16_t sport_str, const uint16_t dport_str,
