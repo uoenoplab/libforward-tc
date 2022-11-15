@@ -262,7 +262,6 @@ int hwaddr_aton(const char *txt, __u8 *addr)
 __attribute__((visibility("hidden")))
 int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
 {
-        __u32 prio = 0;
         int ret;
         struct rtattr *tail;
 
@@ -488,7 +487,6 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	int ret;
         struct rtattr *tail;
         __u32 prio = 0;
-	char addr[256];
 
 	/* check if flow is in system */
 	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
@@ -594,7 +592,6 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	int ret;
         struct rtattr *tail;
         __u32 prio = 0;
-	char addr[256];
 
 	ret = rtnl_open(&rth, 0);
 	assert(ret == 0);
