@@ -260,7 +260,7 @@ int hwaddr_aton(const char *txt, __u8 *addr)
 }
 
 __attribute__((visibility("hidden")))
-int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n)
+int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n, const bool hw_offload)
 {
         int ret;
         struct rtattr *tail;
@@ -272,8 +272,10 @@ int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t spor
 
         __u32 flags = 0;
 	/* check if traffic is outbound, no offload for egress */
-	if (src_ip == my_ip.sin_addr.s_addr) {
+	if (src_ip == my_ip.sin_addr.s_addr || !hw_offload) {
                 flags |= TCA_CLS_FLAGS_SKIP_HW;
+		if (hw_offload)
+			fprintf(stderr, "INFO: libforward-tc: hardware offload is not supported on egress\n");
 	}
         else {
                 flags |= TCA_CLS_FLAGS_SKIP_SW;
@@ -558,7 +560,7 @@ int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const
 
 int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
 			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
-			const uint16_t new_sport, const uint16_t new_dport, const bool block)
+			const uint16_t new_sport, const uint16_t new_dport, const bool block, const bool hw_offload)
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
@@ -616,7 +618,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	tail = (struct rtattr *) (((void *)&req.n) + NLMSG_ALIGN((&req.n)->nlmsg_len));
 
 	/* add filter */
-	add_filter(src_ip, dst_ip, sport, dport, &req.n);
+	add_filter(src_ip, dst_ip, sport, dport, &req.n, hw_offload);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
 #endif
@@ -693,7 +695,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 int apply_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport,
 			const char *new_src_ip_str, const char *new_src_mac_str, const char *new_dst_ip_str, const char *new_dst_mac_str,
-			const uint16_t new_sport, const uint16_t new_dport, const bool block)
+			const uint16_t new_sport, const uint16_t new_dport, const bool block, const bool hw_offload)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
@@ -712,7 +714,7 @@ int apply_redirection_str(const char *src_ip_str, const char *dst_ip_str, const 
 	inet_pton(AF_INET, new_src_ip_str, &new_src_ip);
 	inet_pton(AF_INET, new_dst_ip_str, &new_dst_ip);
 
-	return apply_redirection(src_ip, dst_ip, htons(sport), htons(dport), new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, htons(new_sport), htons(new_dport), block);
+	return apply_redirection(src_ip, dst_ip, htons(sport), htons(dport), new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, htons(new_sport), htons(new_dport), block, hw_offload);
 }
 
 int init_forward(const char *interface_name, const char *ingress_qdisc, const char *egress_qdisc)

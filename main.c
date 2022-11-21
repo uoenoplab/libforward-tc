@@ -32,10 +32,10 @@ int main(int argc, char **argv)
 	apply_redirection_str("192.168.11.164", "192.168.11.131",
 			8888, 8889,
 			"192.168.11.131", "3c:fd:fe:e5:a4:d0", "192.168.11.163", "3c:fd:fe:e5:ba:10",
-			8888, 8889, false);
+			8888, 8889, true, false);
 
-	remove_redirection_str("192.168.11.164", "192.168.11.131",
-			      8888, 8889);
+//	remove_redirection_str("192.168.11.164", "192.168.11.131",
+//			      8888, 8889);
 
 //	remove_redirection_str("192.168.11.131", "00:15:4d:13:70:b5", "192.168.11.164", "3c:fd:fe:e5:a4:d0",
 //			      (uint16_t)8889, (uint16_t)8888);
