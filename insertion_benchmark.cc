@@ -135,11 +135,11 @@ int main(int argc, char *argv[])
 		assert (apply_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 					  random_flows.sport[i], random_flows.dport[i],
 					  random_flows.new_src_ip[i], &random_flows.new_src_mac[i * 8], random_flows.new_dst_ip[i], &random_flows.new_dst_mac[i * 8],
-					  random_flows.new_sport[i], random_flows.new_dport[i], true) == 0);
+					  random_flows.new_sport[i], random_flows.new_dport[i], true, true) == 0);
 		assert (apply_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 					  random_flows.sport[i], random_flows.dport[i],
 					  random_flows.new_src_ip[i], &random_flows.new_src_mac[i * 8], random_flows.new_dst_ip[i], &random_flows.new_dst_mac[i * 8],
-					  random_flows.new_sport[i], random_flows.new_dport[i], false) == 0);
+					  random_flows.new_sport[i], random_flows.new_dport[i], false, true) == 0);
 	}
 
 	/* remove a flow such that all actions are at least called once */
@@ -165,13 +165,13 @@ int main(int argc, char *argv[])
 		assert (apply_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 					  random_flows.sport[i], random_flows.dport[i],
 					  random_flows.new_src_ip[i], &random_flows.new_src_mac[i * 8], random_flows.new_dst_ip[i], &random_flows.new_dst_mac[i * 8],
-					  random_flows.new_sport[i], random_flows.new_dport[i], true) == 0);
+					  random_flows.new_sport[i], random_flows.new_dport[i], true, true) == 0);
 		insert_end = std::chrono::steady_clock::now();
 		/* update drop rule to pedit rule */
 		assert (apply_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
 					  random_flows.sport[i], random_flows.dport[i],
 					  random_flows.new_src_ip[i], &random_flows.new_src_mac[i * 8], random_flows.new_dst_ip[i], &random_flows.new_dst_mac[i * 8],
-					  random_flows.new_sport[i], random_flows.new_dport[i], false) == 0);
+					  random_flows.new_sport[i], random_flows.new_dport[i], false, true) == 0);
 		update_end = std::chrono::steady_clock::now();
 		/* remove rule */
 		remove_redirection(random_flows.src_ip[i], random_flows.dst_ip[i],
@@ -191,9 +191,9 @@ int main(int argc, char *argv[])
 		remove_duration_ns += remove_ns;
 	}
 
-	std::cout << "Insertion rate: " << (double)INSERT_FLOWS / ((double)insert_duration_ns * 1e-9) << " rules/s, " << (double)INSERT_FLOWS / ((double)insert_duration_ns * 1e-6) << " ms/rule" << std::endl;
-	std::cout << "Update rate   : " << (double)INSERT_FLOWS / ((double)update_duration_ns * 1e-9) << " rules/s, " << (double)INSERT_FLOWS / ((double)update_duration_ns * 1e-6) << " ms/rule" << std::endl;
-	std::cout << "Removal rate  : " << (double)INSERT_FLOWS / ((double)remove_duration_ns * 1e-9) << " rules/s, " << (double)INSERT_FLOWS / ((double)remove_duration_ns * 1e-6) << " ms/rule" << std::endl;
+	std::cout << "Insertion rate: " << (double)INSERT_FLOWS / ((double)insert_duration_ns * 1e-9) << " rules/s, " << ((double)insert_duration_ns * 1e-6) / (double)INSERT_FLOWS << " ms/rule" << std::endl;
+	std::cout << "Update rate   : " << (double)INSERT_FLOWS / ((double)update_duration_ns * 1e-9) << " rules/s, " << ((double)update_duration_ns * 1e-6) / (double)INSERT_FLOWS << " ms/rule" << std::endl;
+	std::cout << "Removal rate  : " << (double)INSERT_FLOWS / ((double)remove_duration_ns * 1e-9) << " rules/s, " << ((double)remove_duration_ns * 1e-6) / (double)INSERT_FLOWS << " ms/rule" << std::endl;
 
 	std::cout << "Cleanup..." << std::endl;
 	/* remove warmup flows */
