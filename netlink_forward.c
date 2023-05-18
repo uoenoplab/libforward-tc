@@ -513,10 +513,17 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 
 	/* check if flow is egress or ingress */
 	if (src_ip == my_ip.sin_addr.s_addr) {
-		get_tc_classid(&req.t.tcm_parent, egress_qdisc_parent);
+		/* check if this is a normal qdisc or a clsact qdisc */
+		if (strcmp(egress_qdisc_parent, "egress") == 0)
+			req.t.tcm_parent = TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_EGRESS);
+		else
+			get_tc_classid(&req.t.tcm_parent, egress_qdisc_parent);
 	}
 	else {
-		get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
+		if (strcmp(ingress_qdisc_parent, "ingress") == 0)
+			req.t.tcm_parent = TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_INGRESS);
+		else
+			get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
 
 	// prior
@@ -600,10 +607,17 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 	/* check if flow is egress or ingress */
 	if (src_ip == my_ip.sin_addr.s_addr) {
-		get_tc_classid(&req.t.tcm_parent, egress_qdisc_parent);
+		/* check if this is a normal qdisc or a clsact qdisc */
+		if (strcmp(egress_qdisc_parent, "egress") == 0)
+			req.t.tcm_parent = TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_EGRESS);
+		else
+			get_tc_classid(&req.t.tcm_parent, egress_qdisc_parent);
 	}
 	else {
-		get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
+		if (strcmp(ingress_qdisc_parent, "ingress") == 0)
+			req.t.tcm_parent = TC_H_MAKE(TC_H_CLSACT, TC_H_MIN_INGRESS);
+		else
+			get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
 
 	// prior
