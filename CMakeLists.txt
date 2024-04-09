@@ -20,6 +20,7 @@ set(C_SRC
 ExternalProject_Add(iproute2
     GIT_REPOSITORY https://github.com/shemminger/iproute2.git
     GIT_TAG v6.8.0
+    UPDATE_DISCONNECTED true
     SOURCE_DIR libs/iproute2
     BUILD_IN_SOURCE ON
     CONFIGURE_COMMAND ./configure
@@ -30,6 +31,7 @@ ExternalProject_Add(iproute2
 ExternalProject_Add(uthash
     GIT_REPOSITORY https://github.com/troydhanson/uthash.git
     SOURCE_DIR libs/uthash
+    UPDATE_DISCONNECTED true
     CONFIGURE_COMMAND ""
     BUILD_COMMAND ""
     INSTALL_COMMAND "")
