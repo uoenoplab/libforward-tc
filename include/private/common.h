@@ -2,6 +2,13 @@
 #define __COMMON_H__
 
 #include <stdint.h>
+#include <stdbool.h>
+
+#include <libnetlink.h>
+#include <linux/tc_act/tc_csum.h>
+#include <linux/tc_act/tc_mirred.h>
+#include <linux/tc_act/tc_pedit.h>
+#include <linux/tc_act/tc_gact.h>
 
 #include "uthash.h"
 
@@ -25,6 +32,17 @@ struct flow_key {
 //	uint8_t dst_mac[6];
 	uint16_t src_port;
 	uint16_t dst_port;
+};
+
+// for ebpf
+struct redirection {
+	uint32_t new_src_ip;
+	uint32_t new_dst_ip;
+	uint8_t new_src_mac[6];
+	uint8_t new_dst_mac[6];
+	uint16_t new_sport;
+	uint16_t new_dport;
+	bool block;
 };
 
 struct flow {
@@ -56,5 +74,7 @@ struct m_pedit_sel {
 	struct m_pedit_key_ex keys_ex[MAX_OFFS];
 	bool extended;
 };
+
+extern int initialized;
 
 #endif

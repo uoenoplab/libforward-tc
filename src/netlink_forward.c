@@ -12,12 +12,6 @@
 #include <linux/if.h>
 #include <linux/if_arp.h>
 
-#include <libnetlink.h>
-#include <linux/tc_act/tc_csum.h>
-#include <linux/tc_act/tc_mirred.h>
-#include <linux/tc_act/tc_pedit.h>
-#include <linux/tc_act/tc_gact.h>
-
 #include "forward.h"
 #include "private/common.h"
 #include "uthash.h"
@@ -38,7 +32,7 @@ struct sockaddr_in my_ip;
 uint8_t my_mac[6];
 
 /* out flow table */
-struct flow *my_flows = NULL;
+static struct flow *my_flows = NULL;
 
 __attribute__((visibility("hidden")))
 int get_tc_classid(__u32 *h, const char *str)

@@ -14,6 +14,7 @@ endif()
 
 set(C_SRC
     src/netlink_forward.c
+    src/ebpf_forward.c
 )
 
 # add iproute2 source
@@ -38,6 +39,8 @@ ExternalProject_Add(uthash
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBCAP REQUIRED libcap)
+pkg_check_modules(LIBBPF REQUIRED libbpf)
+pkg_check_modules(LIBBPF REQUIRED libelf)
 
 # library
 add_library(forward-tc SHARED
@@ -48,6 +51,8 @@ add_dependencies(forward-tc iproute2 uthash)
 target_include_directories(forward-tc PRIVATE
     include
     include/private
+    ${LIBBPF_INCLUDE_DIRS}
+    ${LIBELF_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}/libs/uthash/include
     ${CMAKE_CURRENT_BINARY_DIR}/libs/iproute2/include)
 
@@ -57,6 +62,8 @@ target_link_directories(forward-tc PRIVATE
 
 target_link_libraries(forward-tc PRIVATE
     ${LIBCAP_LIBRARIES}
+    ${LIBBPF_LIBRARIES}
+    ${LIBELF_LIBRARIES}
     rt
     netlink
     util)
