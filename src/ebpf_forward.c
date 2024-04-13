@@ -64,11 +64,12 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	redirected_flow.block = block;
 
 	if (existing_flow && existing_flow->handle == UINT32_MAX) {
-		fprintf(stderr, "INFO: libforward: updating existing eBPF flow (%d,%d)...\n", sport, dport);
+		fprintf(stderr, "INFO: libforward: updating existing eBPF flow (%d,%d) (network order)...\n", sport, dport);
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
 	}
 	else {
+		fprintf(stderr, "INFO: libforward: adding eBPF flow (%d,%d) (network order)...\n", sport, dport);
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
 		this_flow->handle = UINT32_MAX;
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
