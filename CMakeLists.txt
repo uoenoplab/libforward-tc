@@ -36,6 +36,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBCAP REQUIRED libcap)
 pkg_check_modules(LIBBPF REQUIRED libbpf)
 pkg_check_modules(LIBELF REQUIRED libelf)
+pkg_check_modules(LIBMNL REQUIRED libmnl)
 
 set(C_SRC
     src/netlink_forward.c
@@ -61,12 +62,13 @@ target_link_directories(forward-tc PRIVATE
 )
 
 target_link_libraries(forward-tc PRIVATE
-    ${LIBCAP_LIBRARIES}
-    ${LIBBPF_LIBRARIES}
-    ${LIBELF_LIBRARIES}
     rt
     netlink
-    util)
+    util
+    ${LIBMNL_LIBRARIES}
+    ${LIBCAP_LIBRARIES}
+    ${LIBBPF_LIBRARIES}
+    ${LIBELF_LIBRARIES})
 
 set_target_properties(forward-tc PROPERTIES
         POSITION_INDEPENDENT_CODE ON
@@ -82,9 +84,10 @@ target_link_options(forward-tc PRIVATE
 add_executable(main.out src/main.c)
 target_include_directories(main.out PUBLIC
     include)
+target_link_directories(main.out PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}/libs/iproute2/lib
+)
 target_link_libraries(main.out PUBLIC
-    ${LIBBPF_LIBRARIES}
-    ${LIBELF_LIBRARIES}
     forward-tc)
 set_target_properties(main.out PROPERTIES
     C_STANDARD 11)
