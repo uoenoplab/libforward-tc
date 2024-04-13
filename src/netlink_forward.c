@@ -768,6 +768,13 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 	memcpy(&my_ip, &interface_request.ifr_addr, sizeof(struct sockaddr_in));
 
         close(fd);
+
+	map_fd = bpf_obj_get(MAP_PATH);
+	if (map_fd < 0) {
+		perror("bpf_obj_get");
+		return 0;
+	}
+
 #ifdef DEV
 	fprintf(stderr, "INFO: libforward: device: %s; ingress qdisc ID: %s; egress qdisc ID: %s; MAC: %02x:%02x:%02x:%02x:%02x:%02x; IP: %s\n",
 		device_name, ingress_qdisc_parent, egress_qdisc_parent, my_mac[0], my_mac[1], my_mac[2], my_mac[3], my_mac[4], my_mac[5], inet_ntoa(my_ip.sin_addr));

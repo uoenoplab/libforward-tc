@@ -25,6 +25,8 @@
 #define RU16 0xFFFF
 #define RU8 0xFF
 
+#define MAP_PATH "/sys/fs/bpf/ebpf_redirect_block/map"
+
 struct flow_key {
 	uint32_t src_ip;
 	uint32_t dst_ip;
@@ -42,7 +44,8 @@ struct redirection {
 	uint8_t new_dst_mac[6];
 	uint16_t new_sport;
 	uint16_t new_dport;
-	bool block;
+	uint8_t block;
+	uint8_t redirect;
 };
 
 struct flow {
@@ -76,5 +79,6 @@ struct m_pedit_sel {
 };
 
 extern int initialized;
+extern int map_fd;
 
 #endif

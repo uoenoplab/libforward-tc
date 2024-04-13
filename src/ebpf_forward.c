@@ -12,7 +12,7 @@
 #include "bpf/bpf.h"
 
 static struct flow *my_flows = NULL;
-static int map_fd = -1;
+int map_fd = -1;
 
 #ifdef PROFILE
 #include <time.h>
@@ -63,14 +63,7 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	redirected_flow.new_dport = new_dport;
 	redirected_flow.block = block;
 
-	if (existing_flow && existing_flow->handle != UINT32_MAX) {
-		fprintf(stderr, "INFO: libforward: updating existing flow from TC to eBPF (%d,%d)...\n", sport, dport);
-		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
-		remove_redirection_tc(src_ip, dst_ip, sport, dport);
-		existing_flow->handle = UINT32_MAX;
-		free(this_flow);
-	}
-	else if (existing_flow && existing_flow->handle == UINT32_MAX) {
+	if (existing_flow && existing_flow->handle == UINT32_MAX) {
 		fprintf(stderr, "INFO: libforward: updating existing eBPF flow (%d,%d)...\n", sport, dport);
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
@@ -133,7 +126,7 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	else {
 		ret = bpf_map_delete_elem(map_fd, &(existing_flow->flow_id));
 		free(this_flow);
-		//HASH_DEL(my_flows, existing_flow);
+		HASH_DEL(my_flows, existing_flow);
 	}
 
 #ifdef PROFILE
