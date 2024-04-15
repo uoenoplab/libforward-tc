@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+int fini_forward_ebpf();
+
 int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip,
 			const uint16_t sport, const uint16_t dport);
 

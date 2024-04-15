@@ -139,3 +139,18 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 
 	return ret;
 }
+
+int fini_forward_ebpf()
+{
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+
+	struct flow *current_flow, *tmp;
+	HASH_ITER(hh, my_flows, current_flow, tmp) {
+		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+	}
+
+	return 0;
+}
