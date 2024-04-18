@@ -13,6 +13,7 @@
 
 static struct flow *my_flows = NULL;
 int map_fd = -1;
+static pthread_rwlock_t lock;
 
 #ifdef PROFILE
 #include <time.h>
@@ -51,7 +52,9 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	pthread_rwlock_unlock(&lock);
 
 	struct redirection redirected_flow;
 	bzero(&redirected_flow, sizeof(struct redirection));
@@ -72,7 +75,9 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 		fprintf(stderr, "INFO: libforward: adding eBPF flow (%d,%d) (network order)...\n", sport, dport);
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
 		this_flow->handle = UINT32_MAX;
+		if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+		pthread_rwlock_unlock(&lock);
 	}
 
 #ifdef PROFILE
@@ -113,7 +118,9 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	pthread_rwlock_unlock(&lock);
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
@@ -127,7 +134,9 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	else {
 		ret = bpf_map_delete_elem(map_fd, &(existing_flow->flow_id));
 		free(this_flow);
+		if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 		HASH_DEL(my_flows, existing_flow);
+		pthread_rwlock_unlock(&lock);
 	}
 
 #ifdef PROFILE
@@ -148,9 +157,11 @@ int fini_forward_ebpf()
 	}
 
 	struct flow *current_flow, *tmp;
+	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
+	pthread_rwlock_unlock(&lock);
 
 	return 0;
 }

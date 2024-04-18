@@ -30,6 +30,7 @@ char ingress_qdisc_parent[256];
 char egress_qdisc_parent[256];
 struct sockaddr_in my_ip;
 uint8_t my_mac[6];
+static pthread_rwlock_t lock;
 
 /* out flow table */
 static struct flow *my_flows = NULL;
@@ -491,13 +492,17 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get rdlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	pthread_rwlock_unlock(&lock);
 
 	if (!existing_flow) {
 		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow\n");
 		free(this_flow);
 		return 2;
 	}
+	pthread_rwlock_unlock(&lock);
+
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
 #endif
@@ -534,7 +539,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		return 2;
 	}
 	rtnl_close(&rth);
+	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 	HASH_DEL(my_flows, existing_flow);
+	pthread_rwlock_unlock(&lock);
 	free(this_flow);
 	free(existing_flow);
 #ifdef PROFILE
@@ -645,7 +652,10 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
+	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get rdlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	pthread_rwlock_unlock(&lock);
+
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
 #endif
@@ -685,7 +695,10 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 		/* add flow to hash table */
 		this_flow->handle = req.t.tcm_handle;
+		if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+		pthread_rwlock_unlock(&lock);
+
 	}
 
 	rtnl_close(&rth);
@@ -731,6 +744,8 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 		fprintf(stderr, "Warning: libforward already initialized\n");
 		return -1;
 	}
+
+	if (pthread_rwlock_init(&lock, NULL) != 0) printf("can't create rwlock");
 
 	/* copy device name and qdisc */
 	strcpy(device_name, interface_name);
@@ -792,8 +807,11 @@ int fini_forward()
 	}
 
 	struct flow *current_flow, *tmp;
+
+	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
+	pthread_rwlock_unlock(&lock);
 	}
 
 	return 0;
