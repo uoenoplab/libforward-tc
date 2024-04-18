@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <linux/bpf.h>
+#include <pthread.h>
 
 #include "private/common.h"
 #include "ebpf_forward.h"

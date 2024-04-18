@@ -11,6 +11,8 @@
 #include <sys/ioctl.h>
 #include <linux/if.h>
 #include <linux/if_arp.h>
+#include <pthread.h>
+#include "bpf/bpf.h"
 
 #include "forward.h"
 #include "private/common.h"
@@ -501,7 +503,6 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		free(this_flow);
 		return 2;
 	}
-	pthread_rwlock_unlock(&lock);
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
@@ -811,8 +812,8 @@ int fini_forward()
 	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
-	pthread_rwlock_unlock(&lock);
 	}
+	pthread_rwlock_unlock(&lock);
 
 	return 0;
 }
