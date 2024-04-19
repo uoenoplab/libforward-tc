@@ -88,7 +88,7 @@ add_custom_command(
     DEPENDS ${EBPF_REDIRECT_BLOCK_SRC}
     COMMENT "Compiling eBPF program: ${EBPF_REDIRECT_BLOCK_OUT}"
 )
-add_custom_target(ebpf_redirect_block ALL DEPENDS ${EBPF_OUT})
+add_custom_target(ebpf_redirect_block ALL DEPENDS ${EBPF_REDIRECT_BLOCK_OUT})
 
 # build driver application
 add_executable(main.out src/main.c)
