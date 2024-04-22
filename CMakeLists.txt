@@ -80,6 +80,16 @@ target_link_options(forward-tc PRIVATE
 	-Wl,-no-as-needed -fstack-protector-all -Wall -Wextra -ggdb -O3 -g)
 #-fsanitize=undefined,address -fno-omit-frame-pointer -fstack-protector -Wall -Wextra -ggdb -O3 -g)
 
+set(EBPF_REDIRECT_BLOCK_SRC ${CMAKE_SOURCE_DIR}/ebpf/ebpf_redirect_block.c)
+set(EBPF_REDIRECT_BLOCK_OUT ${CMAKE_BINARY_DIR}/ebpf_redirect_block.o)
+add_custom_command(
+    OUTPUT ${EBPF_REDIRECT_BLOCK_OUT}
+    COMMAND clang -Wall -O2 -g -target bpf -c ${EBPF_REDIRECT_BLOCK_SRC} -o ${EBPF_REDIRECT_BLOCK_OUT}
+    DEPENDS ${EBPF_REDIRECT_BLOCK_SRC}
+    COMMENT "Compiling eBPF program: ${EBPF_REDIRECT_BLOCK_OUT}"
+)
+add_custom_target(ebpf_redirect_block ALL DEPENDS ${EBPF_REDIRECT_BLOCK_OUT})
+
 # build driver application
 add_executable(main.out src/main.c)
 target_include_directories(main.out PUBLIC
