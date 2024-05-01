@@ -18,6 +18,8 @@
 #include "private/common.h"
 #include "uthash.h"
 
+//#define DEBUG
+
 #ifdef PROFILE
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
@@ -469,7 +471,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -498,8 +500,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 	if (!existing_flow) {
-		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow\n");
+		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
+		pthread_rwlock_unlock(&lock);
 		return 2;
 	}
 
@@ -536,9 +539,13 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
+		pthread_rwlock_unlock(&lock);
 		return 2;
 	}
 	rtnl_close(&rth);
+#ifdef DEBUG
+	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d)...\n", sport, dport);
+#endif
 	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
 	free(existing_flow);
@@ -585,7 +592,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
 	struct rtnl_handle rth;
 
 	struct {
@@ -660,7 +667,9 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 	if (existing_flow) {
 		/* if flow is existing, extract the flow handle number */
+#ifdef DEBUG
 		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", sport, dport);
+#endif
 		free(this_flow);
 		req.t.tcm_handle = existing_flow->handle;
 
@@ -668,6 +677,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 			fprintf(stderr, "We have an error talking to the kernel\n");
 			rtnl_close(&rth);
+			pthread_rwlock_unlock(&lock);
 			return 2;
 		}
 	}
@@ -688,6 +698,8 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			free(this_flow);
 			rtnl_close(&rth);
 			fprintf(stderr, "ERROR: libforward-tc: Fail to insert rule after 5 trials\n");
+			pthread_rwlock_unlock(&lock);
+			exit(1);
 			return 2;
 		}
 
@@ -805,11 +817,11 @@ int fini_forward()
 
 	struct flow *current_flow, *tmp;
 
-	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
+	//if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
-	pthread_rwlock_unlock(&lock);
+	//pthread_rwlock_unlock(&lock);
 
 	return 0;
 }

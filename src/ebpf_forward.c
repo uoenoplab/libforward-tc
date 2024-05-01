@@ -12,6 +12,8 @@
 #include "ebpf_forward.h"
 #include "bpf/bpf.h"
 
+//#define DEBUG
+
 static struct flow *my_flows = NULL;
 int map_fd = -1;
 static pthread_rwlock_t lock;
@@ -29,14 +31,15 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 			const uint16_t new_sport, const uint16_t new_dport, const bool block)
 {
 	if (initialized == -1) {
-		fprintf(stderr, "WARNING: libforward: library not initialized\n");
+		fprintf(stderr, "WARNING: libforward-ebpf: library not initialized\n");
 		return -1;
 	}
 	
 	if(map_fd < 0) {
-		fprintf(stderr, "WARNING: libforward: invalid eBPF map fd\n");
+		fprintf(stderr, "WARNING: libforward-ebpf: invalid eBPF map fd\n");
 		return -1;
 	}
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
@@ -53,9 +56,7 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
-	pthread_rwlock_unlock(&lock);
 
 	struct redirection redirected_flow;
 	bzero(&redirected_flow, sizeof(struct redirection));
@@ -68,17 +69,19 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	redirected_flow.block = block;
 
 	if (existing_flow && existing_flow->handle == UINT32_MAX) {
-		fprintf(stderr, "INFO: libforward: updating existing eBPF flow (%d,%d) (network order)...\n", sport, dport);
+#ifdef DEBUG
+		fprintf(stderr, "INFO: libforward-ebpf: updating existing eBPF flow (%d,%d) (network order)...\n", sport, dport);
+#endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
 	}
 	else {
-		fprintf(stderr, "INFO: libforward: adding eBPF flow (%d,%d) (network order)...\n", sport, dport);
+#ifdef DEBUG
+		fprintf(stderr, "INFO: libforward-ebpf: adding eBPF flow (%d,%d) (network order)...\n", sport, dport);
+#endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
 		this_flow->handle = UINT32_MAX;
-		if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
-		pthread_rwlock_unlock(&lock);
 	}
 
 #ifdef PROFILE
@@ -86,20 +89,22 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &start_time));
 #endif
 
+	pthread_rwlock_unlock(&lock);
 	return ret;
 }
 
 int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
 	if (initialized == -1) {
-		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		fprintf(stderr, "WARNING: libforward-epbf: library not initialized\n");
 		return -1;
 	}
 
 	if(map_fd < 0) {
-		fprintf(stderr, "WARNING: libforward: invalid eBPF map fd\n");
+		fprintf(stderr, "WARNING: libforward-ebpf: invalid eBPF map fd\n");
 		return -1;
 	}
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
@@ -119,25 +124,26 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
-	pthread_rwlock_unlock(&lock);
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
 #endif
 
 	if (!existing_flow) {
-		fprintf(stderr, "ERROR: libforward: cannot delete unregistered flow\n");
+		fprintf(stderr, "ERROR: libforward-ebpf: cannot delete unregistered flow\n");
 		free(this_flow);
+		exit(1);
 		ret = 2;
 	}
 	else {
 		ret = bpf_map_delete_elem(map_fd, &(existing_flow->flow_id));
 		free(this_flow);
-		if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
 		HASH_DEL(my_flows, existing_flow);
-		pthread_rwlock_unlock(&lock);
+#ifdef DEBUG
+		fprintf(stderr, "INFO: libforward-epbf: removing eBPF existing flow (%d,%d)...\n", sport, dport);
+#endif
+		free(existing_flow);
 	}
 
 #ifdef PROFILE
@@ -147,22 +153,23 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 
+	pthread_rwlock_unlock(&lock);
 	return ret;
 }
 
 int fini_forward_ebpf()
 {
 	if (initialized != 1) {
-		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		fprintf(stderr, "WARNING: libforward-epbf: library not initialized\n");
 		return 1;
 	}
 
 	struct flow *current_flow, *tmp;
-	if (pthread_rwlock_wrlock(&lock) != 0) printf("can't get wrlock");
+//	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
-	pthread_rwlock_unlock(&lock);
+//	pthread_rwlock_unlock(&lock);
 
 	return 0;
 }
