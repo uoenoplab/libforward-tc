@@ -76,6 +76,20 @@ dbg(int action, struct iphdr *ip, struct tcphdr *tcp)
 	}
 }
 
+static __always_inline
+void update_checksum(__u16 *csum, __u32 old_val, __u32 new_val)
+{
+	__u32 new_csum_value;
+	__u32 new_csum_comp;
+	__u32 undo;
+
+	undo = ~(*csum) + ~old_val;
+	new_csum_value = undo + (undo < ~old_val) + new_val;
+	new_csum_comp = new_csum_value + (new_csum_value < new_val);
+	new_csum_comp = (new_csum_comp & 0xFFFF) + (new_csum_comp >> 16);
+	new_csum_comp = (new_csum_comp & 0xFFFF) + (new_csum_comp >> 16);
+	*csum = (__u16)~new_csum_comp;
+}
 
 SEC("classifier") int
 handle_packet(struct __sk_buff *skb)
@@ -123,18 +137,24 @@ handle_packet(struct __sk_buff *skb)
 		else //if (value->redirect)
 		{
 			//dbg(REDIRECT, ip, tcp);
-			__u32 old_daddr = ip->daddr;
-
 			ip->daddr = value->new_dst_ip;
+			ip->saddr = value->new_src_ip;
+
+			tcp->dest = value->new_dport;
+			tcp->source = value->new_sport;
+
 			memcpy(eth->h_source, value->new_src_mac, ETH_ALEN);
 			memcpy(eth->h_dest, value->new_dst_mac, ETH_ALEN);
 
 			ip->check = 0;
 			ip->check = update_ip_checksum(ip);
 
-			__u32 tcp_csum_offset = sizeof(struct ethhdr) + sizeof(struct iphdr) + offsetof(struct tcphdr, check);
-			bpf_l4_csum_replace(skb, tcp_csum_offset, old_daddr, ip->daddr, BPF_F_PSEUDO_HDR | sizeof(ip->daddr));
-			    
+			__u16 *tcp_checksum = &(tcp->check);
+			update_checksum(tcp_checksum, flow.dst_ip, value->new_dst_ip);
+			update_checksum(tcp_checksum, flow.src_ip, value->new_src_ip);
+			update_checksum(tcp_checksum, flow.src_port, value->new_sport);
+			update_checksum(tcp_checksum, flow.dst_port, value->new_dport);
+
 			bpf_redirect(skb->ifindex, 0);
 			return TC_ACT_REDIRECT;
 		}
