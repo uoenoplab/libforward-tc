@@ -26,6 +26,31 @@ static double diff_timespec(const struct timespec *time1, const struct timespec 
 }
 #endif
 
+int apply_redirection_ebpf_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport,
+			const char *new_src_ip_str, const char *new_src_mac_str, const char *new_dst_ip_str, const char *new_dst_mac_str,
+			const uint16_t new_sport, const uint16_t new_dport, const bool block)
+{
+	uint32_t src_ip;
+	uint32_t dst_ip;
+
+	uint32_t new_src_ip;
+	uint32_t new_dst_ip;
+
+	uint8_t new_src_mac[6];
+	uint8_t new_dst_mac[6];
+
+	hwaddr_aton(new_src_mac_str, new_src_mac);
+	hwaddr_aton(new_dst_mac_str, new_dst_mac);
+
+	inet_pton(AF_INET, src_ip_str, &src_ip);
+	inet_pton(AF_INET, dst_ip_str, &dst_ip);
+	inet_pton(AF_INET, new_src_ip_str, &new_src_ip);
+	inet_pton(AF_INET, new_dst_ip_str, &new_dst_ip);
+
+	return apply_redirection_ebpf(src_ip, dst_ip, htons(sport), htons(dport), new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, htons(new_sport), htons(new_dport), block);
+}
+
+
 int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
 			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 			const uint16_t new_sport, const uint16_t new_dport, const bool block)
@@ -66,18 +91,18 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	memcpy(redirected_flow.new_dst_mac, new_dst_mac, sizeof(redirected_flow.new_dst_mac));
 	redirected_flow.new_sport = new_sport;
 	redirected_flow.new_dport = new_dport;
-	redirected_flow.block = block;
+	redirected_flow.block = block ? 1 : 0;
 
 	if (existing_flow && existing_flow->handle == UINT32_MAX) {
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-ebpf: updating existing eBPF flow (%d,%d) (network order)...\n", sport, dport);
+		fprintf(stderr, "INFO: libforward-ebpf: updating existing eBPF flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
 	}
 	else {
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-ebpf: adding eBPF flow (%d,%d) (network order)...\n", sport, dport);
+		fprintf(stderr, "INFO: libforward-ebpf: adding eBPF flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
 		this_flow->handle = UINT32_MAX;
@@ -92,6 +117,18 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	pthread_rwlock_unlock(&lock);
 	return ret;
 }
+
+int remove_redirection_ebpf_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
+{
+	uint32_t src_ip;
+	uint32_t dst_ip;
+
+	inet_pton(AF_INET, src_ip_str, &src_ip);
+	inet_pton(AF_INET, dst_ip_str, &dst_ip);
+
+	return remove_redirection_ebpf(src_ip, dst_ip, htons(sport), htons(dport));
+}
+
 
 int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
@@ -141,7 +178,7 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 		free(this_flow);
 		HASH_DEL(my_flows, existing_flow);
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-epbf: removing eBPF existing flow (%d,%d)...\n", sport, dport);
+		fprintf(stderr, "INFO: libforward-epbf: removing eBPF existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 		free(existing_flow);
 	}

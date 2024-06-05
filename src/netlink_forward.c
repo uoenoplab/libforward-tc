@@ -503,6 +503,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
 		pthread_rwlock_unlock(&lock);
+		exit(1);
 		return 2;
 	}
 
@@ -540,11 +541,12 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
 		pthread_rwlock_unlock(&lock);
+		exit(1);
 		return 2;
 	}
 	rtnl_close(&rth);
 #ifdef DEBUG
-	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d)...\n", sport, dport);
+	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
@@ -668,7 +670,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	if (existing_flow) {
 		/* if flow is existing, extract the flow handle number */
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", sport, dport);
+		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 		free(this_flow);
 		req.t.tcm_handle = existing_flow->handle;
@@ -678,6 +680,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			fprintf(stderr, "We have an error talking to the kernel\n");
 			rtnl_close(&rth);
 			pthread_rwlock_unlock(&lock);
+			exit(1);
 			return 2;
 		}
 	}
@@ -706,6 +709,9 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		/* add flow to hash table */
 		this_flow->handle = req.t.tcm_handle;
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+#ifdef DEBUG
+		fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+#endif
 
 	}
 
