@@ -16,3 +16,4 @@ mkdir "$BPFPATH"
 bpftool prog load "$BPFPROG" "$BPFPATH"/main pinmaps "$BPFPATH"
 tc qdisc add dev "$IFNAME" clsact 
 tc filter add dev "$IFNAME" ingress bpf direct-action pinned "$BPFPATH"/main
+tc filter add dev "$IFNAME" egress bpf direct-action pinned "$BPFPATH"/main
