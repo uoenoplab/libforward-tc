@@ -46,12 +46,12 @@ struct redirection {
 	uint16_t new_dport;
 	uint8_t block;
 	uint8_t redirect;
-	uint8_t ready;
 };
 
 struct flow {
 	struct flow_key flow_id;
 	uint32_t handle;
+	uintptr_t ptr;
 	UT_hash_handle hh;         /* makes this structure hashable */
 };
 

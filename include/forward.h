@@ -12,7 +12,12 @@ int init_forward(const char *interface_name, const char *ingress_qdisc_parent, c
 int fini_forward();
 
 void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
-				const uint16_t sport, const uint16_t dport);
+				const uint16_t sport, const uint16_t dport,
+				const uintptr_t ptr);
+
+void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
+			const uint16_t sport, const uint16_t dport,
+			uintptr_t *ptr, int *status);
 
 int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str,
 			   const uint16_t sport, const uint16_t dport);

@@ -449,7 +449,8 @@ static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, cons
 }
 
 void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
-				const uint16_t sport, const uint16_t dport)
+				const uint16_t sport, const uint16_t dport,
+				const uintptr_t ptr)
 {
 #ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
@@ -464,6 +465,7 @@ void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
 
 	/* mark handle -1 for pending */
 	this_flow->handle = 0;
+	this_flow->ptr = ptr;
 
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 	if (existing_flow) {
@@ -481,6 +483,30 @@ void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
 #ifdef THREAD_SAFE
 	pthread_rwlock_unlock(&lock);
 #endif
+}
+
+void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
+			const uint16_t sport, const uint16_t dport,
+			uintptr_t *ptr, int *status)
+{
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *existing_flow = NULL;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	if (existing_flow) {
+		*ptr = existing_flow->ptr;
+		*status = existing_flow->handle;
+	}
+	else {
+		/* if flow does not exist */
+		*ptr = 0;
+		*status = -1;
+	}
 }
 
 int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
