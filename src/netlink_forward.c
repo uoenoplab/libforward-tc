@@ -448,8 +448,8 @@ static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, cons
 	return 0;
 }
 
-struct flow_key *register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
-					const uint16_t sport, const uint16_t dport)
+void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
+				const uint16_t sport, const uint16_t dport)
 {
 #ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
@@ -479,39 +479,8 @@ struct flow_key *register_pending_tc_flow(const uint32_t src_ip, const uint32_t 
 	fprintf(stderr, "INFO: register_pending_tc_flow: adding flow to table and mark handle to zero (%d,%d)\n", ntohs(sport), ntohs(dport));
 #endif
 #ifdef THREAD_SAFE
-		pthread_rwlock_unlock(&lock);
+	pthread_rwlock_unlock(&lock);
 #endif
-	return &(this_flow->flow_id);
-}
-
-/* return -1 if flow is not in table; 0 if flow in table but not in TC */
-int get_tc_flow_status(const uint32_t src_ip, const uint32_t dst_ip,
-			const uint16_t sport, const uint16_t dport)
-{
-	int ret = 0;
-#ifdef THREAD_SAFE
-	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
-#endif
-	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
-	struct flow *existing_flow = NULL;
-	this_flow->flow_id.src_ip = src_ip;
-	this_flow->flow_id.dst_ip = dst_ip;
-	this_flow->flow_id.src_port = sport;
-	this_flow->flow_id.dst_port = dport;
-
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
-	free(this_flow);
-
-	if (existing_flow)
-		ret = existing_flow->handle;
-	else
-		ret = -1;
-
-#ifdef THREAD_SAFE
-		pthread_rwlock_unlock(&lock);
-#endif
-	return ret;
 }
 
 int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
@@ -565,8 +534,8 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 #ifdef THREAD_SAFE
 		pthread_rwlock_unlock(&lock);
 #endif
-		exit(1);
-		return 2;
+		//exit(1);
+		return 1;
 	}
 	else if (existing_flow->handle == 0) {
 		HASH_DEL(my_flows, existing_flow);
@@ -636,7 +605,6 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 #endif
 
 	return 0;
-
 }
 
 int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
@@ -930,7 +898,7 @@ int fini_forward()
 	}
 #ifdef THREAD_SAFE
 	//pthread_rwlock_unlock(&lock);
+	pthread_rwlock_destroy(&lock);
 #endif
-
 	return 0;
 }

@@ -221,6 +221,7 @@ int fini_forward_ebpf()
 	}
 #ifdef THREAD_SAFE
 //	pthread_rwlock_unlock(&lock);
+	pthread_rwlock_destroy(&lock);
 #endif
 
 	return 0;

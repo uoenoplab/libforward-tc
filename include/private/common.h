@@ -11,7 +11,6 @@
 #include <linux/tc_act/tc_gact.h>
 
 #include "uthash.h"
-#include "forward.h"
 
 #define MAX_MSG 16384
 #define MAX_OFFS 128
@@ -27,6 +26,15 @@
 #define RU8 0xFF
 
 #define MAP_PATH "/sys/fs/bpf/ebpf_redirect_block/map"
+
+struct flow_key {
+	uint32_t src_ip;
+	uint32_t dst_ip;
+//	uint8_t src_mac[6];
+//	uint8_t dst_mac[6];
+	uint16_t src_port;
+	uint16_t dst_port;
+};
 
 // for ebpf
 struct redirection {
