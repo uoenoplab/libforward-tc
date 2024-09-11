@@ -4,6 +4,8 @@ enable_language(C)
 
 include(ExternalProject)
 
+option(THREAD_SAFE "Compile with thread safety to protect flow table" ON)
+
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug")
 endif()
@@ -79,6 +81,9 @@ target_compile_options(forward-tc PRIVATE
 target_link_options(forward-tc PRIVATE
 	-Wl,-no-as-needed -fstack-protector-all -Wall -Wextra -ggdb -O3 -g)
 #-fsanitize=undefined,address -fno-omit-frame-pointer -fstack-protector -Wall -Wextra -ggdb -O3 -g)
+if (THREAD_SAFE)
+	target_compile_definitions(forward-tc PRIVATE THREAD_SAFE)
+endif()
 
 set(EBPF_REDIRECT_BLOCK_SRC ${CMAKE_SOURCE_DIR}/ebpf/ebpf_redirect_block.c)
 set(EBPF_REDIRECT_BLOCK_OUT ${CMAKE_BINARY_DIR}/ebpf_redirect_block.o)
@@ -109,6 +114,7 @@ target_link_options(main.out PRIVATE
 #-fsanitize=address,undefined -fno-omit-frame-pointer -fstack-protector -O3 -Wall -Wextra -g)
 
 message(STATUS "Building with libbpf: " ${LIBBPF_LIBRARIES})
+message(STATUS "Building with thread safety: " ${THREAD_SAFE})
 ## install binary, library, and public header
 #install(TARGETS main.out DESTINATION bin)
 #install(TARGETS forward-tc DESTINATION lib)

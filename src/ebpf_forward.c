@@ -9,6 +9,7 @@
 #include <pthread.h>
 
 #include "private/common.h"
+#include "forward.h"
 #include "ebpf_forward.h"
 #include "bpf/bpf.h"
 
@@ -16,7 +17,9 @@
 
 static struct flow *my_flows = NULL;
 int map_fd = -1;
+#ifdef THREAD_SAFE
 static pthread_rwlock_t lock;
+#endif
 
 #ifdef PROFILE
 #include <time.h>
@@ -64,7 +67,9 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 		fprintf(stderr, "WARNING: libforward-ebpf: invalid eBPF map fd\n");
 		return -1;
 	}
+#ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
@@ -114,7 +119,9 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &start_time));
 #endif
 
+#ifdef THREAD_SAFE
 	pthread_rwlock_unlock(&lock);
+#endif
 	return ret;
 }
 
@@ -141,7 +148,9 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 		fprintf(stderr, "WARNING: libforward-ebpf: invalid eBPF map fd\n");
 		return -1;
 	}
+#ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
@@ -190,7 +199,9 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 
+#ifdef THREAD_SAFE
 	pthread_rwlock_unlock(&lock);
+#endif
 	return ret;
 }
 
@@ -202,11 +213,15 @@ int fini_forward_ebpf()
 	}
 
 	struct flow *current_flow, *tmp;
+#ifdef THREAD_SAFE
 //	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
+#endif
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
+#ifdef THREAD_SAFE
 //	pthread_rwlock_unlock(&lock);
+#endif
 
 	return 0;
 }

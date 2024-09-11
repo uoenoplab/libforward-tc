@@ -34,13 +34,14 @@ char ingress_qdisc_parent[256];
 char egress_qdisc_parent[256];
 struct sockaddr_in my_ip;
 uint8_t my_mac[6];
+#ifdef THREAD_SAFE
 static pthread_rwlock_t lock;
+#endif
 
 /* out flow table */
 static struct flow *my_flows = NULL;
 
-__attribute__((visibility("hidden")))
-int get_tc_classid(__u32 *h, const char *str)
+static int get_tc_classid(__u32 *h, const char *str)
 {
 	__u32 maj, min;
 	char *p;
@@ -76,8 +77,7 @@ ok:
 	return 0;
 }
 
-__attribute__((visibility("hidden")))
-int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
+static int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 {
 	struct tc_pedit_sel *sel = &_sel->sel;
 	struct m_pedit_key_ex *keys_ex = _sel->keys_ex;
@@ -114,8 +114,7 @@ int pack_key(struct m_pedit_sel *_sel, struct m_pedit_key *tkey)
 	return 0;
 }
 
-__attribute__((visibility("hidden")))
-int pack_key16(__u32 retain, struct m_pedit_sel *sel,
+static int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
 	int ind, stride;
@@ -142,8 +141,7 @@ int pack_key16(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-__attribute__((visibility("hidden")))
-int pack_key32(__u32 retain, struct m_pedit_sel *sel,
+static int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 		      struct m_pedit_key *tkey)
 {
 	if (tkey->off > (tkey->off & ~3)) {
@@ -157,8 +155,7 @@ int pack_key32(__u32 retain, struct m_pedit_sel *sel,
 	return pack_key(sel, tkey);
 }
 
-__attribute__((visibility("hidden")))
-int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
+static int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 		    const __u8 *mac)
 {
 	int ret = 0;
@@ -190,8 +187,7 @@ int pack_mac(struct m_pedit_sel *sel, struct m_pedit_key *tkey,
 	return ret;
 }
 
-__attribute__((visibility("hidden")))
-int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
+static int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 {
 	struct m_pedit_key_ex *k = sel->keys_ex;
 	struct rtattr *keys_start;
@@ -224,8 +220,7 @@ int pedit_keys_ex_addattr(struct m_pedit_sel *sel, struct nlmsghdr *n)
 }
 
 /* http://docs.ros.org/en/diamondback/api/wpa_supplicant/html/common_8c_source.html */
-__attribute__((visibility("hidden")))
-int hex2num(char c)
+static int hex2num(char c)
 {
         if (c >= '0' && c <= '9')
                 return c - '0';
@@ -236,7 +231,6 @@ int hex2num(char c)
         return -1;
 }
 
-__attribute__((visibility("hidden")))
 int hwaddr_aton(const char *txt, __u8 *addr)
 {
         int i;
@@ -258,8 +252,7 @@ int hwaddr_aton(const char *txt, __u8 *addr)
         return 0;
 }
 
-__attribute__((visibility("hidden")))
-int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n, const bool hw_offload)
+static int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport, struct nlmsghdr *n, const bool hw_offload)
 {
         int ret;
         struct rtattr *tail;
@@ -303,8 +296,7 @@ int add_filter(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t spor
 	return 0;
 }
 
-__attribute__((visibility("hidden")))
-int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
+static int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 		const uint16_t new_sport, const uint16_t new_dport, const bool block, const int direction, struct nlmsghdr *n)
 {
 	struct rtattr *tail4;
@@ -456,6 +448,72 @@ int add_pedit(const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint3
 	return 0;
 }
 
+struct flow_key *register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
+					const uint16_t sport, const uint16_t dport)
+{
+#ifdef THREAD_SAFE
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *existing_flow = NULL;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+
+	/* mark handle -1 for pending */
+	this_flow->handle = 0;
+
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	if (existing_flow) {
+		/* flow already in table, throw error */
+		fprintf(stderr, "ERROR: register_pending_tc_flow: flow already in the table (%d,%d)\n", ntohs(sport), ntohs(dport));
+		free(this_flow);
+		return NULL;
+	}
+
+	/* add entry to table */
+	HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+#ifdef DEBUG
+	fprintf(stderr, "INFO: register_pending_tc_flow: adding flow to table and mark handle to zero (%d,%d)\n", ntohs(sport), ntohs(dport));
+#endif
+#ifdef THREAD_SAFE
+		pthread_rwlock_unlock(&lock);
+#endif
+	return &(this_flow->flow_id);
+}
+
+/* return -1 if flow is not in table; 0 if flow in table but not in TC */
+int get_tc_flow_status(const uint32_t src_ip, const uint32_t dst_ip,
+			const uint16_t sport, const uint16_t dport)
+{
+	int ret = 0;
+#ifdef THREAD_SAFE
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *existing_flow = NULL;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	free(this_flow);
+
+	if (existing_flow)
+		ret = existing_flow->handle;
+	else
+		ret = -1;
+
+#ifdef THREAD_SAFE
+		pthread_rwlock_unlock(&lock);
+#endif
+	return ret;
+}
+
 int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
 	if (initialized != 1) {
@@ -471,7 +529,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
+#ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -502,9 +562,21 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	if (!existing_flow) {
 		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
+#ifdef THREAD_SAFE
 		pthread_rwlock_unlock(&lock);
+#endif
 		exit(1);
 		return 2;
+	}
+	else if (existing_flow->handle == 0) {
+		HASH_DEL(my_flows, existing_flow);
+		free(this_flow);
+		free(existing_flow);
+		fprintf(stderr, "WARNING: libforward-tc: removed pending flow from table (%d,%d)\n", ntohs(sport), ntohs(dport));
+#ifdef THREAD_SAFE
+		pthread_rwlock_unlock(&lock);
+#endif
+		return 0;
 	}
 
 #ifdef PROFILE
@@ -540,7 +612,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 		fprintf(stderr, "We have an error talking to the kernel\n");
+#ifdef THREAD_SAFE
 		pthread_rwlock_unlock(&lock);
+#endif
 		exit(1);
 		return 2;
 	}
@@ -551,7 +625,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
 	free(existing_flow);
+#ifdef THREAD_SAFE
 	pthread_rwlock_unlock(&lock);
+#endif
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
 	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
@@ -594,7 +670,9 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
+#ifdef THREAD_SAFE
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+#endif
 	struct rtnl_handle rth;
 
 	struct {
@@ -667,7 +745,8 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
 #endif
 
-	if (existing_flow) {
+	// flow pending in the table and already created in TC
+	if (existing_flow && existing_flow->handle != 0) {
 		/* if flow is existing, extract the flow handle number */
 #ifdef DEBUG
 		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
@@ -679,20 +758,24 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
 			fprintf(stderr, "We have an error talking to the kernel\n");
 			rtnl_close(&rth);
+#ifdef THREAD_SAFE
 			pthread_rwlock_unlock(&lock);
+#endif
 			exit(1);
 			return 2;
 		}
 	}
 	else {
 		/* if flow is new, generate new random handle number */
-		req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+		//req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+		req.t.tcm_handle = (uint32_t) rand() + 1; // RAND_MAX should be enough and smaller than UINT32_MAX
 		unsigned int trial_count = 0;
 		req.n.nlmsg_flags |= NLM_F_EXCL;
 
 		/* in case of collision, repeat 3 times */
 		while (rtnl_talk(&rth, &req.n, NULL) < 0 && trial_count++ < 3) {
-			req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+			//req.t.tcm_handle = (uint32_t) rand() % (UINT32_MAX - 2);
+			req.t.tcm_handle = (uint32_t) rand() + 1; // RAND_MAX should be enough and smaller than UINT32_MAX
 			fprintf(stderr, "WARNING: libforward-tc: insertion new rule: retry %d\n", trial_count);
 		}
 
@@ -701,22 +784,36 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			free(this_flow);
 			rtnl_close(&rth);
 			fprintf(stderr, "ERROR: libforward-tc: Fail to insert rule after 5 trials\n");
+#ifdef THREAD_SAFE
 			pthread_rwlock_unlock(&lock);
+#endif
 			exit(1);
 			return 2;
 		}
 
-		/* add flow to hash table */
-		this_flow->handle = req.t.tcm_handle;
-		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+		if (existing_flow) {
+			/* update hash table value if flow is pending */
+			free(this_flow);
+			existing_flow->handle = req.t.tcm_handle;
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+			fprintf(stderr, "INFO: libforward-tc: adding pending flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
+		}
+		else {
+			/* add to hash table value if entry does not exist already */
+			this_flow->handle = req.t.tcm_handle;
+			HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+#ifdef DEBUG
+			fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+#endif
+		}
 
 	}
 
 	rtnl_close(&rth);
+#ifdef THREAD_SAFE
 	pthread_rwlock_unlock(&lock);
+#endif
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
@@ -760,7 +857,9 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 		return -1;
 	}
 
+#ifdef THREAD_SAFE
 	if (pthread_rwlock_init(&lock, NULL) != 0) printf("can't create rwlock");
+#endif
 
 	/* copy device name and qdisc */
 	strcpy(device_name, interface_name);
@@ -823,11 +922,15 @@ int fini_forward()
 
 	struct flow *current_flow, *tmp;
 
+#ifdef THREAD_SAFE
 	//if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
+#endif
 	HASH_ITER(hh, my_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
+#ifdef THREAD_SAFE
 	//pthread_rwlock_unlock(&lock);
+#endif
 
 	return 0;
 }

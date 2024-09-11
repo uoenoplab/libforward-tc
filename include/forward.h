@@ -8,8 +8,24 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
+struct flow_key {
+	uint32_t src_ip;
+	uint32_t dst_ip;
+//	uint8_t src_mac[6];
+//	uint8_t dst_mac[6];
+	uint16_t src_port;
+	uint16_t dst_port;
+};
+
+
 int init_forward(const char *interface_name, const char *ingress_qdisc_parent, const char *egress_qdisc_parent);
 int fini_forward();
+
+struct flow_key *register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
+					const uint16_t sport, const uint16_t dport);
+
+int get_tc_flow_status(const uint32_t src_ip, const uint32_t dst_ip,
+			const uint16_t sport, const uint16_t dport);
 
 int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str,
 			   const uint16_t sport, const uint16_t dport);
