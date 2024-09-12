@@ -51,7 +51,7 @@ struct redirection {
 struct flow {
 	struct flow_key flow_id;
 	uint32_t handle;
-	uintptr_t ptr;
+	int64_t ptr;
 	UT_hash_handle hh;         /* makes this structure hashable */
 };
 

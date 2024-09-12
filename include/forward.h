@@ -19,9 +19,9 @@ void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
 			const uint16_t sport, const uint16_t dport,
 			uintptr_t *ptr, int *status);
 
-uintptr_t remove_redirection_str(const char *src_ip_str, const char *dst_ip_str,
+int64_t remove_redirection_str(const char *src_ip_str, const char *dst_ip_str,
 				   const uint16_t sport, const uint16_t dport);
-uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip,
+int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip,
 				const uint16_t sport, const uint16_t dport);
 
 int apply_redirection_str(const char *src_ip_str, const char *dst_ip_str,

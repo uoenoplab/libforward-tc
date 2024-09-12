@@ -509,11 +509,11 @@ void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
 	}
 }
 
-uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
+int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
-		return 1;
+		return -1;
 	}
 
 #ifdef PROFILE
@@ -541,7 +541,7 @@ uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const
                 .t.tcm_family = AF_UNSPEC,
         };
 
-	uintptr_t ret;
+	int64_t ret;
         struct rtattr *tail;
         __u32 prio = 0;
 
@@ -561,7 +561,7 @@ uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const
 		pthread_rwlock_unlock(&lock);
 #endif
 		//exit(1);
-		return 1;
+		return -1;
 	}
 	else if (existing_flow->handle == 0) {
 		ret = existing_flow->ptr;
@@ -612,7 +612,7 @@ uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const
 		pthread_rwlock_unlock(&lock);
 #endif
 		exit(1);
-		return 1;
+		return -1;
 	}
 	rtnl_close(&rth);
 #ifdef DEBUG
@@ -635,7 +635,7 @@ uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const
 	return ret;
 }
 
-uintptr_t remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
+int64_t remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
@@ -652,7 +652,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
-		return 1;
+		return -1;
 	}
 
 #ifdef PROFILE
@@ -758,7 +758,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			pthread_rwlock_unlock(&lock);
 #endif
 			exit(1);
-			return 2;
+			return -1;
 		}
 	}
 	else {
@@ -784,7 +784,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			pthread_rwlock_unlock(&lock);
 #endif
 			exit(1);
-			return 2;
+			return -1;
 		}
 
 		if (existing_flow) {
@@ -905,7 +905,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 		device_name, ingress_qdisc_parent, egress_qdisc_parent, my_mac[0], my_mac[1], my_mac[2], my_mac[3], my_mac[4], my_mac[5], inet_ntoa(my_ip.sin_addr));
 #endif
 	initialized = 1;
-	return 1;
+	return 0;
 }
 
 //__attribute__((destructor))
@@ -913,7 +913,7 @@ int fini_forward()
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
-		return 1;
+		return -1;
 	}
 
 	struct flow *current_flow, *tmp;
