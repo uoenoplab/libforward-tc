@@ -456,24 +456,24 @@ void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
 	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
 #endif
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
 
-	/* mark handle -1 for pending */
-	this_flow->handle = 0;
-	this_flow->ptr = ptr;
-
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 	if (existing_flow) {
 		/* flow already in table, throw error */
 		fprintf(stderr, "ERROR: register_pending_tc_flow: flow already in the table (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
-		return NULL;
+		return;
 	}
+
+	/* mark handle -1 for pending */
+	this_flow->handle = 0;
+	this_flow->ptr = ptr;
 
 	/* add entry to table */
 	HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
@@ -490,7 +490,7 @@ void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
 			uintptr_t *ptr, int *status)
 {
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
@@ -546,7 +546,7 @@ uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const
         __u32 prio = 0;
 
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
@@ -729,8 +729,8 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 #endif
 
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
-	struct flow *existing_flow;
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
+	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
