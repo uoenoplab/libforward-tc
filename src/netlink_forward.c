@@ -509,7 +509,7 @@ void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
 	}
 }
 
-int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
+uintptr_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
 {
 	if (initialized != 1) {
 		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
@@ -541,7 +541,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
                 .t.tcm_family = AF_UNSPEC,
         };
 
-	int ret;
+	uintptr_t ret;
         struct rtattr *tail;
         __u32 prio = 0;
 
@@ -564,6 +564,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		return 1;
 	}
 	else if (existing_flow->handle == 0) {
+		ret = existing_flow->ptr;
 		HASH_DEL(my_flows, existing_flow);
 		free(this_flow);
 		free(existing_flow);
@@ -571,7 +572,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 #ifdef THREAD_SAFE
 		pthread_rwlock_unlock(&lock);
 #endif
-		return 0;
+		return ret;
 	}
 
 #ifdef PROFILE
@@ -611,12 +612,13 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		pthread_rwlock_unlock(&lock);
 #endif
 		exit(1);
-		return 2;
+		return 1;
 	}
 	rtnl_close(&rth);
 #ifdef DEBUG
 	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
+	ret = existing_flow->ptr;
 	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
 	free(existing_flow);
@@ -630,10 +632,10 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 
-	return 0;
+	return ret;
 }
 
-int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
+uintptr_t remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const uint16_t sport, const uint16_t dport)
 {
 	uint32_t src_ip;
 	uint32_t dst_ip;
