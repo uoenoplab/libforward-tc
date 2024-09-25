@@ -18,7 +18,7 @@
 #include "private/common.h"
 #include "uthash.h"
 
-//#define DEBUG
+#define DEBUG
 
 #ifdef PROFILE
 #include <time.h>
@@ -471,7 +471,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock\n"); exit(1); }
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -491,7 +491,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
         __u32 prio = 0;
 
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
@@ -503,8 +503,19 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
 		pthread_rwlock_unlock(&lock);
-		exit(1);
-		return 2;
+		//exit(1);
+		return -1;
+	}
+
+	if (existing_flow && existing_flow->dummy) {
+		HASH_DEL(my_flows, existing_flow);
+		free(this_flow);
+		free(existing_flow);
+#ifdef DEBUG
+		fprintf(stderr, "DEBUG: libforward-tc: remove dummy flow (%d,%d)\n", ntohs(sport), ntohs(dport));
+#endif
+		pthread_rwlock_unlock(&lock);
+		return 0;
 	}
 
 #ifdef PROFILE
@@ -539,7 +550,7 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	req.t.tcm_handle = existing_flow->handle;
 
 	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
-		fprintf(stderr, "We have an error talking to the kernel\n");
+		fprintf(stderr, "FATAL: libforward-tc: We have an error talking to the kernel\n");
 		pthread_rwlock_unlock(&lock);
 		exit(1);
 		return 2;
@@ -574,6 +585,50 @@ int remove_redirection_str(const char *src_ip_str, const char *dst_ip_str, const
 	return remove_redirection(src_ip, dst_ip, htons(sport), htons(dport));
 }
 
+int apply_redirection_dummy(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
+			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
+			const uint16_t new_sport, const uint16_t new_dport)
+{
+	if (initialized != 1) {
+		fprintf(stderr, "WARNING: libforward-tc: library not initialized\n");
+		return 1;
+	}
+	if (pthread_rwlock_wrlock(&lock) != 0) { fprintf(stderr, "FATAL: libforward-tc: can't get wrlock\n"); exit(1); }
+
+	int ret = 0;
+
+	/* check if flow is in system */
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
+	struct flow *existing_flow;
+	this_flow->flow_id.src_ip = src_ip;
+	this_flow->flow_id.dst_ip = dst_ip;
+	this_flow->flow_id.src_port = sport;
+	this_flow->flow_id.dst_port = dport;
+	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+
+	if (existing_flow) {
+		/* if flow is existing, extract the flow handle number */
+#ifdef DEBUG
+		fprintf(stderr, "ERROR: libforward-tc: flow cannot be added as dummy as it already exists (%d,%d)...\n", ntohs(sport), ntohs(dport));
+#endif
+		free(this_flow);
+		ret = -1;
+	}
+	else {
+		/* add flow to hash table */
+		this_flow->handle = 0;
+		this_flow->dummy = true;
+		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+#ifdef DEBUG
+		fprintf(stderr, "INFO: libforward-tc: adding new dummy flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+#endif
+	}
+
+	pthread_rwlock_unlock(&lock);
+	return ret;
+}
+
+
 int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport,
 			const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
 			const uint16_t new_sport, const uint16_t new_dport, const bool block, const bool hw_offload)
@@ -594,7 +649,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) { printf("can't get wrlock"); exit(1); }
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock"); exit(1); }
 	struct rtnl_handle rth;
 
 	struct {
@@ -655,7 +710,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 #endif
 
 	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow;
 	this_flow->flow_id.src_ip = src_ip;
 	this_flow->flow_id.dst_ip = dst_ip;
@@ -667,7 +722,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
 #endif
 
-	if (existing_flow) {
+	if (existing_flow && existing_flow->dummy == false) {
 		/* if flow is existing, extract the flow handle number */
 #ifdef DEBUG
 		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
@@ -677,7 +732,7 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 		/* add new rule */
 		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
-			fprintf(stderr, "We have an error talking to the kernel\n");
+			fprintf(stderr, "FATAL: libforward-tc: We have an error talking to the kernel\n");
 			rtnl_close(&rth);
 			pthread_rwlock_unlock(&lock);
 			exit(1);
@@ -707,12 +762,22 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		}
 
 		/* add flow to hash table */
-		this_flow->handle = req.t.tcm_handle;
-		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+		if (existing_flow && existing_flow->dummy) {
+			existing_flow->handle = req.t.tcm_handle;
+			existing_flow->dummy = false;
+			free(this_flow);
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+			fprintf(stderr, "INFO: libforward-tc: replacing dummy flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
-
+		}
+		else {
+			this_flow->handle = req.t.tcm_handle;
+			this_flow->dummy = false;
+			HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+#ifdef DEBUG
+			fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+#endif
+		}
 	}
 
 	rtnl_close(&rth);

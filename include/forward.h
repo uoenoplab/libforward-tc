@@ -27,6 +27,11 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip,
 		      const uint16_t new_sport, const uint16_t new_dport,
 		      const bool block, const bool hw_offload);
 
+int apply_redirection_dummy(const uint32_t src_ip, const uint32_t dst_ip,
+		      const uint16_t sport, const uint16_t dport,
+		      const uint32_t new_src_ip, const uint8_t *new_src_mac, const uint32_t new_dst_ip, const uint8_t *new_dst_mac,
+		      const uint16_t new_sport, const uint16_t new_dport);
+
 #ifdef __cplusplus
 }
 #endif

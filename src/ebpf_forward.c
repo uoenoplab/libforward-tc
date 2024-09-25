@@ -12,7 +12,7 @@
 #include "ebpf_forward.h"
 #include "bpf/bpf.h"
 
-//#define DEBUG
+#define DEBUG
 
 static struct flow *my_flows = NULL;
 int map_fd = -1;
@@ -73,7 +73,7 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 #endif
 
 	int ret = -1;
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow = NULL;
 	bzero(this_flow, sizeof(struct flow_key));
 
@@ -153,7 +153,7 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 
 	/* check if flow is in system */
 	int ret = -1;
-	struct flow *this_flow = (struct flow*)malloc(sizeof(struct flow));
+	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
 	struct flow *existing_flow;
 
 	bzero(this_flow, sizeof(struct flow));
