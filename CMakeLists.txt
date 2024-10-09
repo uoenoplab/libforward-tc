@@ -4,6 +4,9 @@ enable_language(C)
 
 include(ExternalProject)
 
+option(USE_DEBUG "Build debug messages" OFF)
+option(USE_PROFILE "Build profiling support" OFF)
+
 if (NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Debug")
 endif()
@@ -80,6 +83,16 @@ target_link_options(forward-tc PRIVATE
 	-Wl,-no-as-needed -fstack-protector-all -Wall -Wextra -ggdb -O3 -g)
 #-fsanitize=undefined,address -fno-omit-frame-pointer -fstack-protector -Wall -Wextra -ggdb -O3 -g)
 
+list(APPEND FORWARD_TC_DEF -DDEBUG)
+list(APPEND FORWARD_TC_DEF -DPROFILE)
+#if (USE_DEBUG)
+#	list(APPEND FORWARD_TC_DEF -DDEBUG)
+#endif()
+#if (USE_PROFILE)
+#	list(APPEND FORWARD_TC_DEF -DPROFILE)
+#endif()
+target_compile_definitions(forward-tc PUBLIC ${FORWARD_TC_DEF})
+
 set(EBPF_REDIRECT_BLOCK_SRC ${CMAKE_SOURCE_DIR}/ebpf/ebpf_redirect_block.c)
 set(EBPF_REDIRECT_BLOCK_OUT ${CMAKE_BINARY_DIR}/ebpf_redirect_block.o)
 add_custom_command(
@@ -109,6 +122,8 @@ target_link_options(main.out PRIVATE
 #-fsanitize=address,undefined -fno-omit-frame-pointer -fstack-protector -O3 -Wall -Wextra -g)
 
 message(STATUS "Building with libbpf: " ${LIBBPF_LIBRARIES})
+message(STATUS "Build debug messages: " ${USE_DEBUG})
+message(STATUS "Build profiling: " ${USE_PROFILE})
 ## install binary, library, and public header
 #install(TARGETS main.out DESTINATION bin)
 #install(TARGETS forward-tc DESTINATION lib)

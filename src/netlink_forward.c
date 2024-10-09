@@ -18,9 +18,21 @@
 #include "private/common.h"
 #include "uthash.h"
 
-#define DEBUG
+//#define DEBUG
 
 #ifdef PROFILE
+static long n_apply_redirection_sw = 0;
+static long n_apply_redirection_hw = 0;
+static long n_update_redirection_sw = 0;
+static long n_update_redirection_hw = 0;
+static long n_remove_redirection = 0;
+
+static double apply_redirection_hw_time = 0.0;
+static double apply_redirection_sw_time = 0.0;
+static double update_redirection_sw_time = 0.0;
+static double update_redirection_hw_time = 0.0;
+static double remove_redirection_time = 0.0;
+
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
 double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
@@ -463,15 +475,14 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		return 1;
 	}
 
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock\n"); exit(1); }
+
 #ifdef PROFILE
 	struct timespec start_time, end_time;
-	struct timespec hash_end_time;
-
-	fprintf(stderr, "Removing rule...\n");
+//	struct timespec hash_end_time;
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock\n"); exit(1); }
 	struct rtnl_handle rth;
 
 	// RTM_NEWTFILTER, NLM_F_EXCL|NLM_F_CREATE
@@ -518,9 +529,9 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 		return 0;
 	}
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
+//#endif
 
 	ret = rtnl_open(&rth, 0);
 	assert(ret == 0);
@@ -562,14 +573,16 @@ int remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint1
 	HASH_DEL(my_flows, existing_flow);
 	free(this_flow);
 	free(existing_flow);
-	pthread_rwlock_unlock(&lock);
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
-	fprintf(stderr, "Deletion time : %f s\n", diff_timespec(&end_time, &hash_end_time));
-	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
+	n_remove_redirection += 1;
+	remove_redirection_time += diff_timespec(&end_time, &start_time);
+//	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
+//	fprintf(stderr, "Deletion time : %f s\n", diff_timespec(&end_time, &hash_end_time));
+//	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
 #endif
 
+	pthread_rwlock_unlock(&lock);
 	return 0;
 
 }
@@ -638,18 +651,16 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		return 1;
 	}
 
+	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock"); exit(1); }
 #ifdef PROFILE
 	struct timespec start_time, end_time;
-	struct timespec create_filter_end_time;
-	struct timespec create_action_end_time;
-	struct timespec hashing_end_time;
-	struct timespec insertion_end_time;
-
-	fprintf(stderr, "Inserting rule...\n");
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
+//	struct timespec create_filter_end_time;
+//	struct timespec create_action_end_time;
+//	struct timespec hashing_end_time;
+//	struct timespec insertion_end_time;
 #endif
 
-	if (pthread_rwlock_wrlock(&lock) != 0) { printf("FATAL: libforward-tc: can't get wrlock"); exit(1); }
 	struct rtnl_handle rth;
 
 	struct {
@@ -698,16 +709,16 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 
 	/* add filter */
 	add_filter(src_ip, dst_ip, sport, dport, &req.n, hw_offload);
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &create_filter_end_time);
+//#endif
 	/* add action */
 	add_pedit(new_src_ip, new_src_mac, new_dst_ip, new_dst_mac, new_sport, new_dport, block, src_ip == my_ip.sin_addr.s_addr ? 0 : 1, &req.n);
 	/* stop nesting message */
 	tail->rta_len = (((void *)&req.n)+(&req.n)->nlmsg_len) - (void *)tail;
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &create_action_end_time);
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &create_action_end_time);
+//#endif
 
 	/* check if flow is in system */
 	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
@@ -718,9 +729,9 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	this_flow->flow_id.dst_port = dport;
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
+//#endif
 
 	if (existing_flow && existing_flow->dummy == false) {
 		/* if flow is existing, extract the flow handle number */
@@ -738,6 +749,17 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 			exit(1);
 			return 2;
 		}
+#ifdef PROFILE
+		clock_gettime(CLOCK_MONOTONIC, &end_time);
+		if (hw_offload) {
+			n_update_redirection_hw += 1;
+			update_redirection_hw_time += diff_timespec(&end_time, &start_time);
+		}
+		else {
+			n_update_redirection_sw += 1;
+			update_redirection_sw_time += diff_timespec(&end_time, &start_time);
+		}
+#endif
 	}
 	else {
 		/* if flow is new, generate new random handle number */
@@ -777,20 +799,34 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 #ifdef DEBUG
 			fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
+#ifdef PROFILE
+			clock_gettime(CLOCK_MONOTONIC, &end_time);
+			if (hw_offload) {
+				n_apply_redirection_hw += 1;
+				apply_redirection_hw_time += diff_timespec(&end_time, &start_time);
+				//unsigned long startTimeInMicroseconds = (start_time.tv_sec)*1e6 + (start_time.tv_nsec)*1e-3;
+				//unsigned long endTimeInMicroseconds = (end_time.tv_sec)*1e6 + (end_time.tv_nsec)*1e-3;
+				////printf("DEBUG: libforward-tc apply redirection time %ld us\n", diff_timespec(&end_time, &start_time));
+				//printf("DEBUG: libforward-tc apply redirection time %ld us\n", endTimeInMicroseconds - startTimeInMicroseconds);
+			}
+			else {
+				n_apply_redirection_sw += 1;
+				apply_redirection_sw_time += diff_timespec(&end_time, &start_time);
+			}
+#endif
 		}
 	}
 
 	rtnl_close(&rth);
-	pthread_rwlock_unlock(&lock);
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
-	fprintf(stderr, "Create action time: %f s\n", diff_timespec(&create_action_end_time, &create_filter_end_time));
-	fprintf(stderr, "Hashing time      : %f s\n", diff_timespec(&hashing_end_time, &create_action_end_time));
-	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &hashing_end_time));
-	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
-#endif
+//	fprintf(stderr, "Create filter time: %f s\n", diff_timespec(&create_filter_end_time, &start_time));
+//	fprintf(stderr, "Create action time: %f s\n", diff_timespec(&create_action_end_time, &create_filter_end_time));
+//	fprintf(stderr, "Hashing time      : %f s\n", diff_timespec(&hashing_end_time, &create_action_end_time));
+//	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &hashing_end_time));
+//	fprintf(stderr, "Total time        : %f s\n\n", diff_timespec(&end_time, &start_time));
+	ret = pthread_rwlock_unlock(&lock);
+	assert(ret == 0);
+
 	return 0;
 }
 
@@ -893,6 +929,14 @@ int fini_forward()
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
 	//pthread_rwlock_unlock(&lock);
+#ifdef PROFILE
+	printf("Apply redirection (sw):  %f / %ld = %f\n", apply_redirection_sw_time, n_apply_redirection_sw, (double)apply_redirection_sw_time / (double)n_apply_redirection_sw);
+	printf("Apply redirection (hw):  %f / %ld = %f\n", apply_redirection_hw_time, n_apply_redirection_hw, (double)apply_redirection_hw_time / (double)n_apply_redirection_hw);
 
+	printf("Update redirection (sw): %f / %ld = %f\n", update_redirection_sw_time, n_update_redirection_sw, (double)update_redirection_sw_time / (double)n_update_redirection_sw);
+	printf("Update redirection (hw): %f / %ld = %f\n", update_redirection_hw_time, n_update_redirection_hw, (double)update_redirection_hw_time / (double)n_update_redirection_hw);
+
+	printf("Remove redirection:      %f / %ld = %f\n", remove_redirection_time, n_remove_redirection, (double)remove_redirection_time / (double)n_remove_redirection);
+#endif
 	return 0;
 }

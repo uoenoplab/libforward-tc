@@ -139,6 +139,8 @@ handle_packet(struct __sk_buff *skb)
 			//dbg(REDIRECT, ip, tcp);
 			ip->daddr = value->new_dst_ip;
 			ip->saddr = value->new_src_ip;
+			ip->id = bpf_htons(0);
+			ip->ttl = 75;
 
 			tcp->dest = value->new_dport;
 			tcp->source = value->new_sport;

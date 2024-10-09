@@ -12,13 +12,21 @@
 #include "ebpf_forward.h"
 #include "bpf/bpf.h"
 
-#define DEBUG
+//#define DEBUG
 
 static struct flow *my_flows = NULL;
 int map_fd = -1;
 static pthread_rwlock_t lock;
 
 #ifdef PROFILE
+static long n_apply_redirection = 0;
+static long n_update_redirection = 0;
+static long n_remove_redirection = 0;
+
+double apply_redirection_time = 0.0;
+double update_redirection_time = 0.0;
+double remove_redirection_time = 0.0;
+
 #include <time.h>
 // https://stackoverflow.com/questions/68804469/subtract-two-timespec-objects-find-difference-in-time-or-duration
 static double diff_timespec(const struct timespec *time1, const struct timespec *time0) {
@@ -68,7 +76,6 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
-	fprintf(stderr, "Inserting rule...\n");
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
@@ -99,6 +106,11 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 #endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
+#ifdef PROFILE
+		n_update_redirection += 1;
+		clock_gettime(CLOCK_MONOTONIC, &end_time);
+		update_redirection_time += diff_timespec(&end_time, &start_time);
+#endif
 	}
 	else {
 #ifdef DEBUG
@@ -107,12 +119,12 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
 		this_flow->handle = UINT32_MAX;
 		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
-	}
-
 #ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	fprintf(stderr, "Insertion time    : %f s\n", diff_timespec(&end_time, &start_time));
+		n_apply_redirection += 1;
+		clock_gettime(CLOCK_MONOTONIC, &end_time);
+		apply_redirection_time += diff_timespec(&end_time, &start_time);
 #endif
+	}
 
 	pthread_rwlock_unlock(&lock);
 	return ret;
@@ -145,9 +157,7 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 
 #ifdef PROFILE
 	struct timespec start_time, end_time;
-	struct timespec hash_end_time;
-
-	fprintf(stderr, "Removing rule...\n");
+//	struct timespec hash_end_time;
 	clock_gettime(CLOCK_MONOTONIC, &start_time);
 #endif
 
@@ -163,15 +173,16 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	this_flow->flow_id.dst_port = dport;
 	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
+//#endif
 
 	if (!existing_flow) {
 		fprintf(stderr, "ERROR: libforward-ebpf: cannot delete unregistered flow\n");
 		free(this_flow);
+		pthread_rwlock_unlock(&lock);
 		exit(1);
-		ret = 2;
+		return 2;
 	}
 	else {
 		ret = bpf_map_delete_elem(map_fd, &(existing_flow->flow_id));
@@ -181,14 +192,19 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 		fprintf(stderr, "INFO: libforward-epbf: removing eBPF existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
 		free(existing_flow);
+#ifdef PROFILE
+		n_remove_redirection += 1;
+		clock_gettime(CLOCK_MONOTONIC, &end_time);
+		remove_redirection_time += diff_timespec(&end_time, &start_time);
+#endif
 	}
 
-#ifdef PROFILE
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
-	fprintf(stderr, "Deletion time : %f s\n", diff_timespec(&end_time, &hash_end_time));
-	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
-#endif
+//#ifdef PROFILE
+//	clock_gettime(CLOCK_MONOTONIC, &end_time);
+//	fprintf(stderr, "Hash time     : %f s\n", diff_timespec(&hash_end_time, &start_time));
+//	fprintf(stderr, "Deletion time : %f s\n", diff_timespec(&end_time, &hash_end_time));
+//	fprintf(stderr, "Total time    : %f s\n\n", diff_timespec(&end_time, &start_time));
+//#endif
 
 	pthread_rwlock_unlock(&lock);
 	return ret;
@@ -207,6 +223,11 @@ int fini_forward_ebpf()
 		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
 //	pthread_rwlock_unlock(&lock);
+#ifdef PROFILE
+	printf("Apply redirection (eBPF):  %f / %ld = %f\n", apply_redirection_time, n_apply_redirection, (double)apply_redirection_time / (double)n_apply_redirection);
+	printf("Update redirection (eBPF): %f / %ld = %f\n", update_redirection_time, n_update_redirection, (double)update_redirection_time / (double)n_update_redirection);
+	printf("Remove redirection:        %f / %ld = %f\n", remove_redirection_time, n_remove_redirection, (double)remove_redirection_time / (double)n_remove_redirection);
+#endif
 
 	return 0;
 }

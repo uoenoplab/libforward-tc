@@ -17,3 +17,4 @@ bpftool prog load "$BPFPROG" "$BPFPATH"/main pinmaps "$BPFPATH"
 tc qdisc add dev "$IFNAME" clsact 
 tc filter add dev "$IFNAME" ingress bpf direct-action pinned "$BPFPATH"/main
 tc filter add dev "$IFNAME" egress bpf direct-action pinned "$BPFPATH"/main
+tc filter add dev ens1f0np0 prior 1 protocol ip ingress flower skip_sw dst_mac 00:15:4d:13:70:b5 src_mac 3c:fd:fe:e5:ba:10 action pedit ex munge eth src set 00:15:4d:13:70:b5 munge eth dst set 3c:fd:fe:e5:a4:d0 action mirred egress redirect dev ens1f0np0
