@@ -25,7 +25,7 @@
 #define RU16 0xFFFF
 #define RU8 0xFF
 
-#define MAP_PATH "/sys/fs/bpf/ebpf_redirect_block/map"
+#define MAP_PATH "/sys/fs/bpf/ebpf_redirect_block_%s/map"
 
 struct flow_key {
 	uint32_t src_ip;

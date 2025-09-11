@@ -2,11 +2,11 @@
 
 IFNAME=ens1f0np0
 
-if [ $# -eq 2 ]; then
+if [ $# -eq 1 ]; then
 	IFNAME="$1"
 fi
 
-NAME=ebpf_redirect_block
+NAME=ebpf_redirect_block_`hostname`
 BPFPATH=/sys/fs/bpf/"$NAME"
 BPFPROG=../build/ebpf_redirect_block.o
 
