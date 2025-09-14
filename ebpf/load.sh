@@ -11,6 +11,10 @@ BPFPATH=/sys/fs/bpf/"$NAME"
 BPFPROG=../build/ebpf_redirect_block.o
 
 tc qdisc del dev "$IFNAME" clsact
+rm "$BPFPATH/main"
+rm "$BPFPATH/map"
+umount "$BPFPATH"
+umount "$BPFPATH"
 rm -rf "$BPFPATH"
 mkdir "$BPFPATH"
 bpftool prog load "$BPFPROG" "$BPFPATH"/main pinmaps "$BPFPATH"
