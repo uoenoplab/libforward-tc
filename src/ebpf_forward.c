@@ -13,9 +13,9 @@
 #include "ebpf_forward.h"
 #include "bpf/bpf.h"
 
-//#define DEBUG
+#define DEBUG
 
-static struct flow *my_flows = NULL;
+static struct flow *my_ebpf_flows = NULL;
 int map_fd = -1;
 #ifdef THREAD_SAFE
 static pthread_rwlock_t lock;
@@ -86,7 +86,7 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	HASH_FIND(hh, my_ebpf_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 	struct redirection redirected_flow;
 	bzero(&redirected_flow, sizeof(struct redirection));
@@ -98,20 +98,20 @@ int apply_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const u
 	redirected_flow.new_dport = new_dport;
 	redirected_flow.block = block ? 1 : 0;
 
-	if (existing_flow && existing_flow->handle == UINT32_MAX) {
+	if (existing_flow && existing_flow->sw_handle == UINT32_MAX) {
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-ebpf: updating existing eBPF flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+		fprintf(stderr, "INFO: libforward-ebpf: updating existing eBPF flow (%d,%d,block=%s)...\n", ntohs(sport), ntohs(dport), block ? "true" : "false");
 #endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_EXIST);
 		free(this_flow);
 	}
 	else {
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-ebpf: adding eBPF flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+		fprintf(stderr, "INFO: libforward-ebpf: adding eBPF flow (%d,%d,block=%s)...\n", ntohs(sport), ntohs(dport), block ? "true" : "false");
 #endif
 		ret = bpf_map_update_elem(map_fd, &(this_flow->flow_id), &redirected_flow, BPF_NOEXIST);
-		this_flow->handle = UINT32_MAX;
-		HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+		this_flow->sw_handle = UINT32_MAX;
+		HASH_ADD(hh, my_ebpf_flows, flow_id, sizeof(struct flow_key), this_flow);
 	}
 
 #ifdef PROFILE
@@ -170,22 +170,22 @@ int remove_redirection_ebpf(const uint32_t src_ip, const uint32_t dst_ip, const 
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	HASH_FIND(hh, my_ebpf_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
 #endif
 
 	if (!existing_flow) {
-		fprintf(stderr, "ERROR: libforward-ebpf: cannot delete unregistered flow\n");
+		fprintf(stderr, "ERROR: libforward-ebpf: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
 		free(this_flow);
-		exit(1);
+		//exit(1);
 		ret = 2;
 	}
 	else {
 		ret = bpf_map_delete_elem(map_fd, &(existing_flow->flow_id));
 		free(this_flow);
-		HASH_DEL(my_flows, existing_flow);
+		HASH_DEL(my_ebpf_flows, existing_flow);
 #ifdef DEBUG
 		fprintf(stderr, "INFO: libforward-epbf: removing eBPF existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
 #endif
@@ -216,7 +216,7 @@ int fini_forward_ebpf()
 #ifdef THREAD_SAFE
 //	if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 #endif
-	HASH_ITER(hh, my_flows, current_flow, tmp) {
+	HASH_ITER(hh, my_ebpf_flows, current_flow, tmp) {
 		remove_redirection_ebpf(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
 #ifdef THREAD_SAFE

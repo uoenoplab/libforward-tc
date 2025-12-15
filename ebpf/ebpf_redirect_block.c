@@ -131,12 +131,12 @@ handle_packet(struct __sk_buff *skb)
 	{
 		if (value->block)
 		{
-			//dbg(DROP, ip, tcp);
+			dbg(DROP, ip, tcp);
 			return TC_ACT_SHOT;
 		}
 		else //if (value->redirect)
 		{
-			//dbg(REDIRECT, ip, tcp);
+			dbg(REDIRECT, ip, tcp);
 			ip->daddr = value->new_dst_ip;
 			ip->saddr = value->new_src_ip;
 
@@ -161,6 +161,7 @@ handle_packet(struct __sk_buff *skb)
 		//else
 		//	return TC_ACT_PIPE;
 	}
+	dbg(PASS, ip, tcp);
 	return TC_ACT_PIPE;
 }
 

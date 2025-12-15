@@ -1,6 +1,6 @@
 #!/bin/bash -x
 
-IFNAME=ens1f0np0
+IFNAME=enp8s0f0np0
 
 if [ $# -eq 2 ]; then
 	IFNAME="$1"

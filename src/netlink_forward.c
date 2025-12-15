@@ -18,7 +18,7 @@
 #include "private/common.h"
 #include "uthash.h"
 
-//#define DEBUG
+#define DEBUG
 
 #ifdef PROFILE
 #include <time.h>
@@ -39,7 +39,7 @@ static pthread_rwlock_t lock;
 #endif
 
 /* out flow table */
-static struct flow *my_flows = NULL;
+static struct flow *my_netlink_flows = NULL;
 
 static int get_tc_classid(__u32 *h, const char *str)
 {
@@ -463,7 +463,7 @@ void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
 
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	HASH_FIND(hh, my_netlink_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 	if (existing_flow) {
 		/* flow already in table, throw error */
 		fprintf(stderr, "ERROR: register_pending_tc_flow: flow already in the table (%d,%d)\n", ntohs(sport), ntohs(dport));
@@ -472,11 +472,12 @@ void register_pending_tc_flow(const uint32_t src_ip, const uint32_t dst_ip,
 	}
 
 	/* mark handle -1 for pending */
-	this_flow->handle = 0;
+	this_flow->sw_handle = UINT32_MAX;
+	this_flow->hw_handle = UINT32_MAX;
 	this_flow->ptr = ptr;
 
 	/* add entry to table */
-	HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+	HASH_ADD(hh, my_netlink_flows, flow_id, sizeof(struct flow_key), this_flow);
 #ifdef DEBUG
 	fprintf(stderr, "INFO: register_pending_tc_flow: adding flow to table and mark handle to zero (%d,%d)\n", ntohs(sport), ntohs(dport));
 #endif
@@ -489,24 +490,24 @@ void get_tc_flow_handle(const uint32_t src_ip, const uint32_t dst_ip,
 			const uint16_t sport, const uint16_t dport,
 			uintptr_t *ptr, int *status)
 {
-	/* check if flow is in system */
-	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
-	struct flow *existing_flow = NULL;
-	this_flow->flow_id.src_ip = src_ip;
-	this_flow->flow_id.dst_ip = dst_ip;
-	this_flow->flow_id.src_port = sport;
-	this_flow->flow_id.dst_port = dport;
-
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
-	if (existing_flow) {
-		*ptr = existing_flow->ptr;
-		*status = existing_flow->handle;
-	}
-	else {
-		/* if flow does not exist */
-		*ptr = 0;
-		*status = -1;
-	}
+//	/* check if flow is in system */
+//	struct flow *this_flow = (struct flow*)calloc(1, sizeof(struct flow));
+//	struct flow *existing_flow = NULL;
+//	this_flow->flow_id.src_ip = src_ip;
+//	this_flow->flow_id.dst_ip = dst_ip;
+//	this_flow->flow_id.src_port = sport;
+//	this_flow->flow_id.dst_port = dport;
+//
+//	HASH_FIND(hh, my_netlink_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+//	if (existing_flow) {
+//		*ptr = existing_flow->ptr;
+//		*status = existing_flow->sw_handle;
+//	}
+//	else {
+//		/* if flow does not exist */
+//		*ptr = 0;
+//		*status = -1;
+//	}
 }
 
 int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16_t sport, const uint16_t dport)
@@ -552,7 +553,7 @@ int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const u
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	HASH_FIND(hh, my_netlink_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 	if (!existing_flow) {
 		fprintf(stderr, "ERROR: libforward-tc: cannot delete unregistered flow (%d,%d)\n", ntohs(sport), ntohs(dport));
@@ -563,9 +564,9 @@ int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const u
 		//exit(1);
 		return -1;
 	}
-	else if (existing_flow->handle == 0) {
+	else if (existing_flow->sw_handle == UINT32_MAX && existing_flow->hw_handle == UINT32_MAX) {
 		ret = existing_flow->ptr;
-		HASH_DEL(my_flows, existing_flow);
+		HASH_DEL(my_netlink_flows, existing_flow);
 		free(this_flow);
 		free(existing_flow);
 		fprintf(stderr, "WARNING: libforward-tc: removed pending flow from table (%d,%d)\n", ntohs(sport), ntohs(dport));
@@ -578,9 +579,6 @@ int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const u
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hash_end_time);
 #endif
-
-	ret = rtnl_open(&rth, 0);
-	assert(ret == 0);
 
 	/* check if flow is egress or ingress */
 	if (src_ip == my_ip.sin_addr.s_addr) {
@@ -597,29 +595,51 @@ int64_t remove_redirection(const uint32_t src_ip, const uint32_t dst_ip, const u
 			get_tc_classid(&req.t.tcm_parent, ingress_qdisc_parent);
 	}
 
-	// prior
-	prio = 1;
-
-	// flower
-	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
 	addattr_l(&req.n, sizeof(req), TCA_KIND, "flower", strlen("flower")+1);
 	req.t.tcm_ifindex = if_nametoindex(device_name);
-	req.t.tcm_handle = existing_flow->handle;
 
-	if (rtnl_talk(&rth, &req.n, NULL) < 0) {
-		fprintf(stderr, "We have an error talking to the kernel\n");
+	ret = rtnl_open(&rth, 0);
+	assert(ret == 0);
+
+	if (existing_flow->sw_handle != UINT32_MAX) {
+		// prior
+		prio = 1;
+		// flower
+		req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
+		req.t.tcm_handle = existing_flow->sw_handle;
+
+		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
+			fprintf(stderr, "We have an error talking to the kernel when removing software flow\n");
 #ifdef THREAD_SAFE
-		pthread_rwlock_unlock(&lock);
+			pthread_rwlock_unlock(&lock);
 #endif
-		exit(1);
-		return -1;
+			exit(1);
+			return -1;
+		}
+	}
+	if (existing_flow->hw_handle != UINT32_MAX) {
+		// prior
+		prio = 2;
+		// flower
+		req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
+		req.t.tcm_handle = existing_flow->hw_handle;
+
+		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
+			fprintf(stderr, "We have an error talking to the kernel when removing hardware flow\n");
+#ifdef THREAD_SAFE
+			pthread_rwlock_unlock(&lock);
+#endif
+			exit(1);
+			return -1;
+		}
+
 	}
 	rtnl_close(&rth);
 #ifdef DEBUG
-	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+	fprintf(stderr, "INFO: libforward-tc: removing existing flow (%d,%d,sw=%s,hw=%s)...\n", ntohs(sport), ntohs(dport), existing_flow->sw_handle != UINT32_MAX ? "true" : "false", existing_flow->hw_handle != UINT32_MAX ? "true" : "false");
 #endif
 	ret = existing_flow->ptr;
-	HASH_DEL(my_flows, existing_flow);
+	HASH_DEL(my_netlink_flows, existing_flow);
 	free(this_flow);
 	free(existing_flow);
 #ifdef THREAD_SAFE
@@ -705,7 +725,10 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	}
 
 	// prior
-	prio = 1;
+	if (hw_offload)
+		prio = 2;
+	else
+		prio = 1;
 
 	/* use flower classifier and get device index */
 	req.t.tcm_info = TC_H_MAKE(prio<<16, 8/*IPv4*/);
@@ -735,20 +758,35 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 	this_flow->flow_id.dst_ip = dst_ip;
 	this_flow->flow_id.src_port = sport;
 	this_flow->flow_id.dst_port = dport;
-	HASH_FIND(hh, my_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
+	HASH_FIND(hh, my_netlink_flows, &(this_flow->flow_id), sizeof(struct flow_key), existing_flow);
 
 #ifdef PROFILE
 	clock_gettime(CLOCK_MONOTONIC, &hashing_end_time);
 #endif
 
 	// flow pending in the table and already created in TC
-	if (existing_flow && existing_flow->handle != 0) {
+	if (existing_flow && 
+		(existing_flow->hw_handle != UINT32_MAX && hw_offload ||
+			existing_flow->sw_handle != UINT32_MAX && !hw_offload)) {
 		/* if flow is existing, extract the flow handle number */
 #ifdef DEBUG
-		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+		fprintf(stderr, "INFO: libforward-tc: updating existing flow (%d,%d,block=%s,sw=%s,hw=%s)...\n", ntohs(sport), ntohs(dport), block ? "true" : "false", existing_flow->sw_handle != UINT32_MAX ? "true" : "false", existing_flow->hw_handle != UINT32_MAX ? "true" : "false");
 #endif
 		free(this_flow);
-		req.t.tcm_handle = existing_flow->handle;
+		if (existing_flow->sw_handle != UINT32_MAX && !hw_offload) {
+			req.t.tcm_handle = existing_flow->sw_handle;
+		}
+		else if (existing_flow->hw_handle != UINT32_MAX && hw_offload) {
+			req.t.tcm_handle = existing_flow->hw_handle;
+		}
+		else {
+			fprintf(stderr, "ERROR: libforward-tc: updating existing flow (%d,%d,block=%s,sw=%s,hw=%s) but requested for %s...\n", ntohs(sport), ntohs(dport), block ? "true" : "false", existing_flow->sw_handle != UINT32_MAX ? "true" : "false", existing_flow->hw_handle != UINT32_MAX ? "true" : "false", hw_offload ? "hardware" : "software");
+#ifdef THREAD_SAFE
+			pthread_rwlock_unlock(&lock);
+#endif
+			exit(1);
+			return -1;
+		}
 
 		/* add new rule */
 		if (rtnl_talk(&rth, &req.n, NULL) < 0) {
@@ -790,17 +828,27 @@ int apply_redirection(const uint32_t src_ip, const uint32_t dst_ip, const uint16
 		if (existing_flow) {
 			/* update hash table value if flow is pending */
 			free(this_flow);
-			existing_flow->handle = req.t.tcm_handle;
+			if (hw_offload)
+				existing_flow->hw_handle = req.t.tcm_handle;
+			else
+				existing_flow->sw_handle = req.t.tcm_handle;
 #ifdef DEBUG
-			fprintf(stderr, "INFO: libforward-tc: adding pending flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+			fprintf(stderr, "INFO: libforward-tc: adding pending flow (%d,%d,sw=%s,hw=%s)...\n", ntohs(sport), ntohs(dport), existing_flow->sw_handle != UINT32_MAX ? "true" : "false", existing_flow->hw_handle != UINT32_MAX ? "true" : "false");
 #endif
 		}
 		else {
 			/* add to hash table value if entry does not exist already */
-			this_flow->handle = req.t.tcm_handle;
-			HASH_ADD(hh, my_flows, flow_id, sizeof(struct flow_key), this_flow);
+			if (hw_offload) {
+				this_flow->hw_handle = req.t.tcm_handle;
+				this_flow->sw_handle = UINT32_MAX;
+			}
+			else {
+				this_flow->sw_handle = req.t.tcm_handle;
+				this_flow->hw_handle = UINT32_MAX;
+			}
+			HASH_ADD(hh, my_netlink_flows, flow_id, sizeof(struct flow_key), this_flow);
 #ifdef DEBUG
-			fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d)...\n", ntohs(sport), ntohs(dport));
+			fprintf(stderr, "INFO: libforward-tc: adding new flow (%d,%d,block=%s,sw=%s,hw=%s)...\n", ntohs(sport), ntohs(dport), block ? "true" : "false", this_flow->sw_handle != UINT32_MAX ? "true" : "false", this_flow->hw_handle != UINT32_MAX ? "true" : "false");
 #endif
 		}
 
@@ -855,6 +903,7 @@ int init_forward(const char *interface_name, const char *ingress_qdisc, const ch
 
 #ifdef THREAD_SAFE
 	if (pthread_rwlock_init(&lock, NULL) != 0) printf("can't create rwlock");
+	srand(time(NULL));
 #endif
 
 	/* copy device name and qdisc */
@@ -921,7 +970,7 @@ int fini_forward()
 #ifdef THREAD_SAFE
 	//if (pthread_rwlock_rdlock(&lock) != 0) printf("can't get wrlock");
 #endif
-	HASH_ITER(hh, my_flows, current_flow, tmp) {
+	HASH_ITER(hh, my_netlink_flows, current_flow, tmp) {
 		remove_redirection(current_flow->flow_id.src_ip, current_flow->flow_id.dst_ip, current_flow->flow_id.src_port, current_flow->flow_id.dst_port);
 	}
 #ifdef THREAD_SAFE
